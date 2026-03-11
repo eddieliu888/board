@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>專業線上教學白板 - 備份還原版</title>
+    <style>
+        body, html {
+            margin: 0; padding: 0; width: 100vw; height: 100vh; overflow: hidden;
+            background-color: #dcdde1; 
+            font-family: 'Comic Sans MS', 'Chalkboard SE', 'Microsoft JhengHei', 'PingFang TC', sans-serif;
+            touch-action: none; 
+        }
+
+        #app-container { width: 100vw; height: 100vh; position: relative; overflow: hidden; }
+
+        #workspace {
+            position: absolute; top: 0; left: 0; width: 3000px; height: 2000px;
+            background-color: #ffffff; box-shadow: 0 0 20px rgba(0,0,0,0.1); transform-origin: 0 0;
+        }
+
+        #image-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 5; }
+        #whiteboard { position: absolute; top: 0; left: 0; display: block; width: 100%; height: 100%; cursor: crosshair; z-index: 10; }
+        #text-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 20; pointer-events: none; }
+        
+        .text-wrapper { position: absolute; transform-origin: 0 0; pointer-events: auto; z-index: 20; }
+        .text-wrapper.active { z-index: 21; }
+
+        .text-drag-handle {
+            height: 24px; background-color: #3498db; color: white; font-size: 14px;
+            display: none; align-items: center; justify-content: center;
+            cursor: move; border-radius: 5px 5px 0 0; user-select: none; touch-action: none; font-family: sans-serif;
+        }
+        .text-wrapper.active .text-drag-handle { display: flex; }
+
+        .text-box {
+            padding: 5px 10px; border: 2px dashed transparent; color: #000000; outline: none;
+            cursor: text; resize: both; overflow: auto; font-weight: bold;
+            border-radius: 0 0 5px 5px; min-width: 50px; min-height: 30px;
+            white-space: pre; box-sizing: border-box;
+        }
+        
+        .text-wrapper.active .text-box { border-color: #3498db; background-color: #ffffff !important; }
+        .text-box::-webkit-scrollbar { width: 0px; height: 0px; display: none; }
+
+        .pasted-image-wrapper { position: absolute; border: 2px dashed transparent; user-select: none; }
+        .pasted-image-wrapper img { width: 100%; height: 100%; display: block; pointer-events: none; }
+        body.mode-move .pasted-image-wrapper { border-color: #3498db; cursor: grab; pointer-events: auto; }
+        body.mode-move .pasted-image-wrapper:active { cursor: grabbing; }
+        body.mode-move .img-del-btn { display: block; }
+
+        .img-del-btn {
+            display: none; position: absolute; top: -15px; right: -15px;
+            background: #e74c3c; color: white; border: none; border-radius: 50%;
+            width: 35px; height: 35px; font-size: 16px; cursor: pointer; box-shadow: 0 2px 5px rgba(0,0,0,0.3); z-index: 6;
+        }
+
+        #toolbar {
+            position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+            background-color: #2c3e50; padding: 10px 20px; border-radius: 30px;
+            display: flex; gap: 8px; align-items: center; box-shadow: 0 4px 15px rgba(0,0,0,0.2); z-index: 1000;
+            flex-wrap: nowrap; /* 防止按鈕被擠下去 */
+        }
+        button {
+            background-color: transparent; border: 2px solid transparent; color: white;
+            padding: 8px 12px; border-radius: 20px; cursor: pointer; font-size: 14px; font-weight: bold; transition: all 0.2s; white-space: nowrap;
+        }
+        button:hover { background-color: rgba(255,255,255,0.1); }
+        button.active { background-color: #3498db; border-color: #2980b9; }
+
+        /* 檔案操作區的視覺區隔 */
+        .file-controls { display: flex; gap: 5px; border-left: 1px solid #7f8c8d; padding-left: 10px; margin-left: 5px; }
+        .file-controls button { color: #f1c40f; border: 1px solid #f1c40f; }
+        .file-controls button:hover { background-color: #f1c40f; color: #2c3e50; }
+
+        .font-size-controls, .color-picker-container { display: flex; gap: 5px; border-left: 1px solid #7f8c8d; padding-left: 10px; margin-left: 5px; }
+        .color-btn { width: 25px; height: 25px; border-radius: 50%; border: 2px solid #ecf0f1; cursor: pointer; padding: 0; }
+        .color-btn.white-btn { border-color: #95a5a6; }
+
+        #toast {
+            position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+            background-color: rgba(44, 62, 80, 0.9); color: white; padding: 12px 24px;
+            border-radius: 20px; font-size: 16px; pointer-events: none; opacity: 0; transition: opacity 0.3s; z-index: 1001; font-weight: bold;
+        }
+    </style>
+</head>
+<body class="mode-pen">
+
+<div id="app-container">
+    <div id="workspace">
+        <div id="image-layer"></div>
+        <canvas id="whiteboard" width="3000" height="2000"></canvas>
+        <div id="text-layer"></div>
+    </div>
+    
+    <div id="toast">提示訊息</div>
+
+    <div id="toolbar">
+        <button id="btn-move" onclick="setMode('move')">👆 移動</button>
+        <button id="btn-pen" class="active" onclick="setMode('pen')">✏️ 畫筆</button>
+        <button id="btn-text" onclick="setMode('text')">🔤 文字</button>
+        <button id="btn-bg-toggle" onclick="toggleTextBg()">🔲 底色: 無</button>
+        <button id="btn-eraser" onclick="setMode('eraser')">🧽 擦布</button>
+        <button onclick="clearCanvas()">🗑️ 清除</button>
+
+        <div class="font-size-controls">
+            <button onmousedown="changeFontSize(event, 4)">A+</button>
+            <button onmousedown="changeFontSize(event, -4)">A-</button>
+        </div>
+
+        <div class="color-picker-container">
+            <button class="color-btn white-btn" style="background-color: #ffffff;" onmousedown="changeColor(event, '#ffffff')"></button>
+            <button class="color-btn" style="background-color: #000000;" onmousedown="changeColor(event, '#000000')"></button>
+            <button class="color-btn" style="background-color: #e74c3c;" onmousedown="changeColor(event, '#e74c3c')"></button>
+            <button class="color-btn" style="background-color: #2980b9;" onmousedown="changeColor(event, '#2980b9')"></button>
+            <button class="color-btn" style="background-color: #27ae60;" onmousedown="changeColor(event, '#27ae60')"></button>
+        </div>
+
+        <div class="file-controls">
+            <button onclick="backupWhiteboard()">💾 備份</button>
+            <button onclick="document.getElementById('file-upload').click()">📂 還原</button>
+            <input type="file" id="file-upload" style="display: none;" accept=".wbd" onchange="restoreWhiteboard(event)">
+        </div>
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('whiteboard');
+    const ctx = canvas.getContext('2d');
+    const workspace = document.getElementById('workspace');
+    const appContainer = document.getElementById('app-container');
+    const toast = document.getElementById('toast');
+    const textLayer = document.getElementById('text-layer');
+    const imageLayer = document.getElementById('image-layer');
+
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+
+    let scale = 1;
+    let translateX = (window.innerWidth - 3000) / 2;
+    let translateY = (window.innerHeight - 2000) / 2;
+    
+    let isDrawing = false;
+    let currentMode = 'pen'; 
+    let currentColor = '#000000';
+    let penWidth = 4;
+    let eraserWidth = 40;
+    let activeTextBox = null; 
+    
+    let savedBoxWidth = '250px';
+    let savedBoxHeight = '60px';
+    let savedFontSize = '32px';
+    let globalTextBgEnabled = false; 
+
+    function updateTransform() { workspace.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`; }
+    updateTransform();
+
+    function showToast(msg) {
+        toast.innerText = msg; toast.style.opacity = 1;
+        setTimeout(() => toast.style.opacity = 0, 2500);
+    }
+
+    function setMode(mode) {
+        currentMode = mode;
+        document.querySelectorAll('#toolbar button:not(#btn-bg-toggle)').forEach(btn => btn.classList.remove('active'));
+        document.getElementById(`btn-${mode}`).classList.add('active');
+        document.body.className = `mode-${mode}`;
+        
+        if (mode === 'move') { canvas.style.pointerEvents = 'none'; } 
+        else { canvas.style.pointerEvents = 'auto'; canvas.style.cursor = mode === 'text' ? 'text' : 'crosshair'; }
+    }
+
+    function changeColor(e, color) { e.preventDefault(); currentColor = color; document.execCommand('foreColor', false, color); }
+    
+    function changeFontSize(e, delta) {
+        e.preventDefault();
+        if (activeTextBox) {
+            let currentSize = window.getComputedStyle(activeTextBox, null).getPropertyValue('font-size');
+            let newSize = parseFloat(currentSize) + delta;
+            if (newSize > 12 && newSize < 120) {
+                activeTextBox.style.fontSize = newSize + 'px';
+                savedFontSize = newSize + 'px';
+                activeTextBox.dispatchEvent(new Event('input')); 
+            }
+        }
+    }
+
+    function updateBgButtonUI(isEnabled) {
+        const btn = document.getElementById('btn-bg-toggle');
+        if (isEnabled) {
+            btn.innerText = '🔳 底色: 白'; btn.classList.add('active');
+        } else {
+            btn.innerText = '🔲 底色: 無'; btn.classList.remove('active');
+        }
+    }
+
+    function toggleTextBg() {
+        if (activeTextBox) {
+            let currentState = activeTextBox.dataset.hasBg === 'true';
+            activeTextBox.dataset.hasBg = (!currentState).toString();
+            updateBgButtonUI(!currentState);
+            showToast(!currentState ? "已為此文字框開啟底色" : "已為此文字框關閉底色");
+        } else {
+            globalTextBgEnabled = !globalTextBgEnabled;
+            updateBgButtonUI(globalTextBgEnabled);
+            showToast(globalTextBgEnabled ? "已開啟預設文字底色" : "已關閉預設文字底色");
+        }
+    }
+
+    function getWorkspaceCoords(clientX, clientY) { return { x: (clientX - translateX) / scale, y: (clientY - translateY) / scale }; }
+
+    let initialPinchDist = null; let lastTouchCenter = null;
+    appContainer.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 2) {
+            isDrawing = false;
+            initialPinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+            lastTouchCenter = { x: (e.touches[0].clientX + e.touches[1].clientX) / 2, y: (e.touches[0].clientY + e.touches[1].clientY) / 2 };
+        }
+    }, { passive: false });
+
+    appContainer.addEventListener('touchmove', (e) => {
+        if (e.touches.length === 2 && lastTouchCenter) {
+            e.preventDefault();
+            const currentDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+            const currentCenter = { x: (e.touches[0].clientX + e.touches[1].clientX) / 2, y: (e.touches[0].clientY + e.touches[1].clientY) / 2 };
+            const scaleFactor = currentDist / initialPinchDist;
+            let newScale = Math.max(0.3, Math.min(scale * scaleFactor, 5));
+            const scaleRatio = newScale / scale;
+            translateX = currentCenter.x - (currentCenter.x - translateX) * scaleRatio + (currentCenter.x - lastTouchCenter.x);
+            translateY = currentCenter.y - (currentCenter.y - translateY) * scaleRatio + (currentCenter.y - lastTouchCenter.y);
+            scale = newScale; initialPinchDist = currentDist; lastTouchCenter = currentCenter;
+            updateTransform();
+        }
+    }, { passive: false });
+    appContainer.addEventListener('touchend', (e) => { if (e.touches.length < 2) { initialPinchDist = null; lastTouchCenter = null; } });
+    appContainer.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        let newScale = Math.max(0.3, Math.min(scale * Math.exp((e.deltaY < 0 ? 1 : -1) * 0.1), 5));
+        const scaleRatio = newScale / scale;
+        translateX = e.clientX - (e.clientX - translateX) * scaleRatio;
+        translateY = e.clientY - (e.clientY - translateY) * scaleRatio;
+        scale = newScale; updateTransform();
+    }, { passive: false });
+
+    let isDraggingItem = false; let startX, startY, startLeft, startTop; let activeDragElement = null;
+
+    canvas.addEventListener('mousedown', startAction); canvas.addEventListener('mousemove', draw);
+    canvas.addEventListener('mouseup', endAction); canvas.addEventListener('mouseout', endAction);
+    canvas.addEventListener('touchstart', (e) => { if(e.touches.length === 1) startAction(e); }, { passive: false });
+    canvas.addEventListener('touchmove', (e) => { if(e.touches.length === 1) draw(e); }, { passive: false });
+    canvas.addEventListener('touchend', endAction);
+
+    function startAction(e) {
+        if (e.touches && e.touches.length > 1) return; 
+        let isDeselecting = false; 
+        
+        if (e.target === canvas) {
+            e.preventDefault(); 
+            if (activeTextBox) {
+                activeTextBox.blur();
+                if (activeTextBox.parentElement) activeTextBox.parentElement.classList.remove('active');
+                activeTextBox = null;
+                isDeselecting = true; 
+            }
+        }
+        
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        const pos = getWorkspaceCoords(clientX, clientY);
+
+        if (currentMode === 'text') { 
+            if (isDeselecting) return; 
+            createTextbox(pos.x, pos.y); 
+            return; 
+        }
+        
+        isDrawing = true; ctx.beginPath(); ctx.moveTo(pos.x, pos.y);
+    }
+
+    function draw(e) {
+        if (!isDrawing) return; e.preventDefault();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        const pos = getWorkspaceCoords(clientX, clientY);
+
+        if (currentMode === 'pen') {
+            ctx.globalCompositeOperation = 'source-over'; ctx.strokeStyle = currentColor; ctx.lineWidth = penWidth / scale;
+        } else if (currentMode === 'eraser') {
+            ctx.globalCompositeOperation = 'destination-out'; ctx.lineWidth = eraserWidth / scale;
+        }
+        ctx.lineTo(pos.x, pos.y); ctx.stroke();
+    }
+    function endAction() { isDrawing = false; ctx.closePath(); }
+
+    // ====== 修改：加入 restoreData 支援還原 ======
+    function createTextbox(x, y, restoreData = null) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'text-wrapper'; // 預設不 active
+        wrapper.style.left = x + 'px'; wrapper.style.top = y + 'px';
+
+        const handle = document.createElement('div');
+        handle.className = 'text-drag-handle'; handle.innerHTML = '✥ 移動';
+
+        const textBox = document.createElement('div');
+        textBox.className = 'text-box'; textBox.contentEditable = true;
+        
+        if (restoreData) {
+            textBox.style.width = restoreData.width;
+            textBox.style.height = restoreData.height;
+            textBox.style.fontSize = restoreData.fontSize;
+            textBox.style.color = restoreData.color;
+            textBox.dataset.hasBg = restoreData.hasBg;
+            textBox.innerHTML = restoreData.content;
+            textBox.style.backgroundColor = restoreData.hasBg === 'true' ? 'rgba(255, 255, 255, 0.9)' : 'transparent';
+        } else {
+            wrapper.classList.add('active'); // 新建時才預設選取
+            textBox.style.width = savedBoxWidth; 
+            textBox.style.height = savedBoxHeight; 
+            textBox.style.fontSize = savedFontSize;
+            textBox.style.color = currentColor;
+            textBox.dataset.hasBg = globalTextBgEnabled.toString();
+        }
+
+        wrapper.appendChild(handle); wrapper.appendChild(textBox); textLayer.appendChild(wrapper);
+        
+        if (!restoreData) {
+            activeTextBox = textBox; 
+            updateBgButtonUI(textBox.dataset.hasBg === 'true');
+        }
+
+        textBox.addEventListener('input', function() {
+            if (this.scrollWidth > this.clientWidth) { this.style.width = (this.scrollWidth + 4) + 'px'; }
+            if (this.scrollHeight > this.clientHeight) { this.style.height = (this.scrollHeight + 4) + 'px'; }
+        });
+
+        const dragStartText = (e) => {
+            isDraggingItem = true; activeDragElement = wrapper;
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            const pos = getWorkspaceCoords(clientX, clientY);
+            startX = pos.x; startY = pos.y; startLeft = parseFloat(wrapper.style.left) || 0; startTop = parseFloat(wrapper.style.top) || 0;
+            e.stopPropagation(); e.preventDefault();
+        };
+        handle.addEventListener('mousedown', dragStartText); handle.addEventListener('touchstart', dragStartText, {passive: false});
+
+        new ResizeObserver(entries => {
+            for (let entry of entries) {
+                savedBoxWidth = entry.target.style.width || entry.contentRect.width + 'px';
+                savedBoxHeight = entry.target.style.height || entry.contentRect.height + 'px';
+            }
+        }).observe(textBox);
+
+        if (!restoreData) { setTimeout(() => { textBox.focus(); }, 0); }
+        
+        textBox.addEventListener('focus', function() {
+            activeTextBox = this; wrapper.classList.add('active'); 
+            updateBgButtonUI(this.dataset.hasBg === 'true');
+        });
+        
+        textBox.addEventListener('blur', function() {
+            setTimeout(() => {
+                if (document.activeElement !== this) {
+                    if(this.innerText.trim() === '') { 
+                        wrapper.remove(); if(activeTextBox === this) activeTextBox = null; 
+                    } else { 
+                        wrapper.classList.remove('active'); 
+                        this.style.backgroundColor = this.dataset.hasBg === 'true' ? 'rgba(255, 255, 255, 0.9)' : 'transparent'; 
+                    }
+                }
+            }, 50);
+        });
+    }
+
+    window.addEventListener('paste', (e) => {
+        const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+        for (let item of items) {
+            if (item.type.indexOf('image') === 0) {
+                const blob = item.getAsFile();
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        createDraggableImage(img.src, img.width, img.height);
+                        showToast("圖片已貼上！已自動切換為「移動」工具");
+                        setMode('move');
+                    };
+                    img.src = event.target.result;
+                };
+                reader.readAsDataURL(blob);
+            }
+        }
+    });
+
+    // ====== 修改：加入 restoreLeft, restoreTop 支援還原 ======
+    function createDraggableImage(src, origW, origH, restoreLeft = null, restoreTop = null, restoreWidth = null, restoreHeight = null) {
+        const wrapper = document.createElement('div'); wrapper.className = 'pasted-image-wrapper';
+        const img = document.createElement('img'); img.src = src;
+        
+        if (restoreLeft !== null) {
+            wrapper.style.width = restoreWidth;
+            wrapper.style.height = restoreHeight;
+            wrapper.style.left = restoreLeft;
+            wrapper.style.top = restoreTop;
+        } else {
+            let w = origW; let h = origH; const maxW = 1000;
+            if (w > maxW) { h = h * (maxW / w); w = maxW; }
+            wrapper.style.width = w + 'px'; wrapper.style.height = h + 'px';
+            const viewCenterX = (window.innerWidth / 2 - translateX) / scale;
+            const viewCenterY = (window.innerHeight / 2 - translateY) / scale;
+            wrapper.style.left = (viewCenterX - w/2) + 'px'; wrapper.style.top = (viewCenterY - h/2) + 'px';
+        }
+        
+        const delBtn = document.createElement('button');
+        delBtn.innerHTML = '🗑️'; delBtn.className = 'img-del-btn';
+        delBtn.onclick = (e) => { e.stopPropagation(); wrapper.remove(); };
+        
+        wrapper.appendChild(img); wrapper.appendChild(delBtn); imageLayer.appendChild(wrapper);
+
+        const dragStartImg = (e) => {
+            if (currentMode !== 'move') return;
+            isDraggingItem = true; activeDragElement = wrapper;
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            const pos = getWorkspaceCoords(clientX, clientY);
+            startX = pos.x; startY = pos.y; startLeft = parseFloat(wrapper.style.left); startTop = parseFloat(wrapper.style.top);
+            e.stopPropagation();
+        };
+
+        wrapper.addEventListener('mousedown', dragStartImg); wrapper.addEventListener('touchstart', dragStartImg, {passive: false});
+    }
+
+    const dragMove = (e) => {
+        if (!isDraggingItem || !activeDragElement) return;
+        if (e.touches && e.touches.length > 1) return;
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        const pos = getWorkspaceCoords(clientX, clientY);
+        activeDragElement.style.left = (startLeft + (pos.x - startX)) + 'px'; 
+        activeDragElement.style.top = (startTop + (pos.y - startY)) + 'px';
+        e.preventDefault(); e.stopPropagation();
+    };
+    const dragEnd = () => { isDraggingItem = false; activeDragElement = null; };
+
+    window.addEventListener('mousemove', dragMove); window.addEventListener('mouseup', dragEnd);
+    window.addEventListener('touchmove', dragMove, {passive: false}); window.addEventListener('touchend', dragEnd);
+
+    // ====== 新增：備份系統 ======
+    function backupWhiteboard() {
+        showToast("正在打包資料，請稍候...");
+        const data = {
+            canvas: canvas.toDataURL(),
+            texts: [],
+            images: []
+        };
+
+        // 收集所有文字
+        document.querySelectorAll('.text-wrapper').forEach(wrapper => {
+            const box = wrapper.querySelector('.text-box');
+            data.texts.push({
+                left: wrapper.style.left,
+                top: wrapper.style.top,
+                width: box.style.width,
+                height: box.style.height,
+                fontSize: box.style.fontSize,
+                color: box.style.color,
+                hasBg: box.dataset.hasBg,
+                content: box.innerHTML
+            });
+        });
+
+        // 收集所有圖片
+        document.querySelectorAll('.pasted-image-wrapper').forEach(wrapper => {
+            const img = wrapper.querySelector('img');
+            data.images.push({
+                left: wrapper.style.left,
+                top: wrapper.style.top,
+                width: wrapper.style.width,
+                height: wrapper.style.height,
+                src: img.src
+            });
+        });
+
+        // 建立下載
+        const blob = new Blob([JSON.stringify(data)], {type: "application/json"});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        // 使用時間戳記當作預設檔名
+        const date = new Date();
+        const timeString = `${date.getMonth()+1}${date.getDate()}_${date.getHours()}${date.getMinutes()}`;
+        a.download = `白板備課資料_${timeString}.wbd`; 
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast("💾 備份檔案已成功下載！");
+    }
+
+    // ====== 新增：還原系統 ======
+    function restoreWhiteboard(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            try {
+                const data = JSON.parse(event.target.result);
+                
+                // 清空當前畫布
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                textLayer.innerHTML = '';
+                imageLayer.innerHTML = '';
+                activeTextBox = null;
+
+                // 1. 還原畫布筆跡
+                if (data.canvas) {
+                    const img = new Image();
+                    img.onload = () => { ctx.drawImage(img, 0, 0); };
+                    img.src = data.canvas;
+                }
+
+                // 2. 還原圖片
+                if (data.images) {
+                    data.images.forEach(imgData => {
+                        createDraggableImage(imgData.src, 0, 0, imgData.left, imgData.top, imgData.width, imgData.height);
+                    });
+                }
+
+                // 3. 還原文字
+                if (data.texts) {
+                    data.texts.forEach(t => {
+                        createTextbox(parseFloat(t.left), parseFloat(t.top), t);
+                    });
+                }
+
+                showToast("📂 備份檔還原成功！");
+                
+            } catch (err) {
+                alert("無法還原：備份檔格式不正確。");
+            }
+        };
+        reader.readAsText(file);
+        e.target.value = ''; // 重置 input 以便下次能選同一個檔案
+    }
+
+    function clearCanvas() {
+        if(confirm('確定要清除整個白板嗎？')) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            textLayer.innerHTML = ''; imageLayer.innerHTML = '';
+            activeTextBox = null;
+        }
+    }
+</script>
+</body>
+</html>
