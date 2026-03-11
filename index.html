@@ -7,9 +7,9 @@
     <style>
         body, html {
             margin: 0; padding: 0; width: 100vw; height: 100vh; overflow: hidden;
-            background-color: #dcdde1; 
+            background-color: #dcdde1;
             font-family: 'Comic Sans MS', 'Chalkboard SE', 'Microsoft JhengHei', 'PingFang TC', sans-serif;
-            touch-action: none; 
+            touch-action: none;
         }
 
         #app-container { width: 100vw; height: 100vh; position: relative; overflow: hidden; }
@@ -21,8 +21,9 @@
 
         #image-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 5; }
         #whiteboard { position: absolute; top: 0; left: 0; display: block; width: 100%; height: 100%; cursor: crosshair; z-index: 10; }
+        #shape-preview { position: absolute; top: 0; left: 0; display: block; width: 100%; height: 100%; z-index: 15; pointer-events: none; }
         #text-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 20; pointer-events: none; }
-        
+
         .text-wrapper { position: absolute; transform-origin: 0 0; pointer-events: auto; z-index: 20; }
         .text-wrapper.active { z-index: 21; }
 
@@ -39,7 +40,7 @@
             border-radius: 0 0 5px 5px; min-width: 50px; min-height: 30px;
             white-space: pre; box-sizing: border-box;
         }
-        
+
         .text-wrapper.active .text-box { border-color: #3498db; background-color: #ffffff !important; }
         .text-box::-webkit-scrollbar { width: 0px; height: 0px; display: none; }
 
@@ -59,8 +60,13 @@
             position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
             background-color: #2c3e50; padding: 10px 20px; border-radius: 30px;
             display: flex; gap: 8px; align-items: center; box-shadow: 0 4px 15px rgba(0,0,0,0.2); z-index: 1000;
-            flex-wrap: nowrap; /* 防止按鈕被擠下去 */
+            flex-wrap: nowrap;
+            max-width: calc(100vw - 24px);
+            overflow-x: auto;
+            scrollbar-width: none;
         }
+        #toolbar::-webkit-scrollbar { display: none; }
+
         button {
             background-color: transparent; border: 2px solid transparent; color: white;
             padding: 8px 12px; border-radius: 20px; cursor: pointer; font-size: 14px; font-weight: bold; transition: all 0.2s; white-space: nowrap;
@@ -68,14 +74,14 @@
         button:hover { background-color: rgba(255,255,255,0.1); }
         button.active { background-color: #3498db; border-color: #2980b9; }
 
-        /* 檔案操作區的視覺區隔 */
-        .file-controls { display: flex; gap: 5px; border-left: 1px solid #7f8c8d; padding-left: 10px; margin-left: 5px; }
+        .file-controls, .font-size-controls, .color-picker-container, .shape-controls {
+            display: flex; gap: 5px; border-left: 1px solid #7f8c8d; padding-left: 10px; margin-left: 5px;
+        }
         .file-controls button { color: #f1c40f; border: 1px solid #f1c40f; }
         .file-controls button:hover { background-color: #f1c40f; color: #2c3e50; }
-
-        .font-size-controls, .color-picker-container { display: flex; gap: 5px; border-left: 1px solid #7f8c8d; padding-left: 10px; margin-left: 5px; }
         .color-btn { width: 25px; height: 25px; border-radius: 50%; border: 2px solid #ecf0f1; cursor: pointer; padding: 0; }
         .color-btn.white-btn { border-color: #95a5a6; }
+        .shape-controls button.active { background-color: #16a085; border-color: #13856d; }
 
         #toast {
             position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
@@ -90,18 +96,25 @@
     <div id="workspace">
         <div id="image-layer"></div>
         <canvas id="whiteboard" width="3000" height="2000"></canvas>
+        <canvas id="shape-preview" width="3000" height="2000"></canvas>
         <div id="text-layer"></div>
     </div>
-    
+
     <div id="toast">提示訊息</div>
 
     <div id="toolbar">
         <button id="btn-move" onclick="setMode('move')">👆 移動</button>
         <button id="btn-pen" class="active" onclick="setMode('pen')">✏️ 畫筆</button>
+        <button id="btn-shape" onclick="setMode('shape')">📐 形狀</button>
         <button id="btn-text" onclick="setMode('text')">🔤 文字</button>
         <button id="btn-bg-toggle" onclick="toggleTextBg()">🔲 底色: 無</button>
         <button id="btn-eraser" onclick="setMode('eraser')">🧽 擦布</button>
         <button onclick="clearCanvas()">🗑️ 清除</button>
+
+        <div class="shape-controls">
+            <button id="shape-rect" class="active" onmousedown="setShapeType(event, 'rect')">⬜ 方形</button>
+            <button id="shape-circle" onmousedown="setShapeType(event, 'circle')">⚪ 圓形</button>
+        </div>
 
         <div class="font-size-controls">
             <button onmousedown="changeFontSize(event, 4)">A+</button>
@@ -127,50 +140,89 @@
 <script>
     const canvas = document.getElementById('whiteboard');
     const ctx = canvas.getContext('2d');
+    const previewCanvas = document.getElementById('shape-preview');
+    const previewCtx = previewCanvas.getContext('2d');
     const workspace = document.getElementById('workspace');
     const appContainer = document.getElementById('app-container');
     const toast = document.getElementById('toast');
     const textLayer = document.getElementById('text-layer');
     const imageLayer = document.getElementById('image-layer');
 
-    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.imageSmoothingEnabled = true;
+    previewCtx.lineCap = 'round';
+    previewCtx.lineJoin = 'round';
+    previewCtx.imageSmoothingEnabled = true;
 
     let scale = 1;
     let translateX = (window.innerWidth - 3000) / 2;
     let translateY = (window.innerHeight - 2000) / 2;
-    
+
     let isDrawing = false;
-    let currentMode = 'pen'; 
+    let currentMode = 'pen';
     let currentColor = '#000000';
+    let currentShapeType = 'rect';
     let penWidth = 4;
     let eraserWidth = 40;
-    let activeTextBox = null; 
-    
+    let activeTextBox = null;
+
     let savedBoxWidth = '250px';
     let savedBoxHeight = '60px';
     let savedFontSize = '32px';
-    let globalTextBgEnabled = false; 
+    let globalTextBgEnabled = false;
 
-    function updateTransform() { workspace.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`; }
+    let lastPoint = null;
+    let shapeStart = null;
+    let moveStartView = null;
+
+    function updateTransform() {
+        workspace.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
+    }
     updateTransform();
 
     function showToast(msg) {
-        toast.innerText = msg; toast.style.opacity = 1;
+        toast.innerText = msg;
+        toast.style.opacity = 1;
         setTimeout(() => toast.style.opacity = 0, 2500);
+    }
+
+    function updateCanvasInteractivity() {
+        if (currentMode === 'move') {
+            canvas.style.pointerEvents = 'auto';
+            canvas.style.cursor = 'grab';
+        } else {
+            canvas.style.pointerEvents = 'auto';
+            canvas.style.cursor = currentMode === 'text' ? 'text' : 'crosshair';
+        }
+        previewCanvas.style.pointerEvents = 'none';
     }
 
     function setMode(mode) {
         currentMode = mode;
-        document.querySelectorAll('#toolbar button:not(#btn-bg-toggle)').forEach(btn => btn.classList.remove('active'));
-        document.getElementById(`btn-${mode}`).classList.add('active');
+        document.querySelectorAll('#toolbar > button[id^="btn-"]').forEach(btn => {
+            if (btn.id !== 'btn-bg-toggle') btn.classList.remove('active');
+        });
+        const targetBtn = document.getElementById(`btn-${mode}`);
+        if (targetBtn) targetBtn.classList.add('active');
         document.body.className = `mode-${mode}`;
-        
-        if (mode === 'move') { canvas.style.pointerEvents = 'none'; } 
-        else { canvas.style.pointerEvents = 'auto'; canvas.style.cursor = mode === 'text' ? 'text' : 'crosshair'; }
+        clearShapePreview();
+        updateCanvasInteractivity();
     }
 
-    function changeColor(e, color) { e.preventDefault(); currentColor = color; document.execCommand('foreColor', false, color); }
-    
+    function setShapeType(e, type) {
+        e.preventDefault();
+        currentShapeType = type;
+        document.getElementById('shape-rect').classList.toggle('active', type === 'rect');
+        document.getElementById('shape-circle').classList.toggle('active', type === 'circle');
+    }
+
+    function changeColor(e, color) {
+        e.preventDefault();
+        currentColor = color;
+        document.execCommand('foreColor', false, color);
+    }
+
     function changeFontSize(e, delta) {
         e.preventDefault();
         if (activeTextBox) {
@@ -179,7 +231,7 @@
             if (newSize > 12 && newSize < 120) {
                 activeTextBox.style.fontSize = newSize + 'px';
                 savedFontSize = newSize + 'px';
-                activeTextBox.dispatchEvent(new Event('input')); 
+                activeTextBox.dispatchEvent(new Event('input'));
             }
         }
     }
@@ -187,9 +239,11 @@
     function updateBgButtonUI(isEnabled) {
         const btn = document.getElementById('btn-bg-toggle');
         if (isEnabled) {
-            btn.innerText = '🔳 底色: 白'; btn.classList.add('active');
+            btn.innerText = '🔳 底色: 白';
+            btn.classList.add('active');
         } else {
-            btn.innerText = '🔲 底色: 無'; btn.classList.remove('active');
+            btn.innerText = '🔲 底色: 無';
+            btn.classList.remove('active');
         }
     }
 
@@ -198,111 +252,290 @@
             let currentState = activeTextBox.dataset.hasBg === 'true';
             activeTextBox.dataset.hasBg = (!currentState).toString();
             updateBgButtonUI(!currentState);
-            showToast(!currentState ? "已為此文字框開啟底色" : "已為此文字框關閉底色");
+            showToast(!currentState ? '已為此文字框開啟底色' : '已為此文字框關閉底色');
         } else {
             globalTextBgEnabled = !globalTextBgEnabled;
             updateBgButtonUI(globalTextBgEnabled);
-            showToast(globalTextBgEnabled ? "已開啟預設文字底色" : "已關閉預設文字底色");
+            showToast(globalTextBgEnabled ? '已開啟預設文字底色' : '已關閉預設文字底色');
         }
     }
 
-    function getWorkspaceCoords(clientX, clientY) { return { x: (clientX - translateX) / scale, y: (clientY - translateY) / scale }; }
+    function getWorkspaceCoords(clientX, clientY) {
+        return { x: (clientX - translateX) / scale, y: (clientY - translateY) / scale };
+    }
 
-    let initialPinchDist = null; let lastTouchCenter = null;
+    function clearShapePreview() {
+        previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+    }
+
+    function drawSmoothSegment(from, to) {
+        const midX = (from.x + to.x) / 2;
+        const midY = (from.y + to.y) / 2;
+        ctx.quadraticCurveTo(from.x, from.y, midX, midY);
+        ctx.stroke();
+    }
+
+    function drawShapePreview(start, end) {
+        clearShapePreview();
+        previewCtx.globalCompositeOperation = 'source-over';
+        previewCtx.strokeStyle = currentColor;
+        previewCtx.lineWidth = penWidth;
+        previewCtx.beginPath();
+
+        const x = Math.min(start.x, end.x);
+        const y = Math.min(start.y, end.y);
+        const w = Math.abs(end.x - start.x);
+        const h = Math.abs(end.y - start.y);
+
+        if (currentShapeType === 'rect') {
+            previewCtx.strokeRect(x, y, w, h);
+        } else {
+            const centerX = x + w / 2;
+            const centerY = y + h / 2;
+            previewCtx.ellipse(centerX, centerY, w / 2, h / 2, 0, 0, Math.PI * 2);
+            previewCtx.stroke();
+        }
+        previewCtx.closePath();
+    }
+
+    function commitShape(start, end) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.strokeStyle = currentColor;
+        ctx.lineWidth = penWidth;
+        ctx.beginPath();
+
+        const x = Math.min(start.x, end.x);
+        const y = Math.min(start.y, end.y);
+        const w = Math.abs(end.x - start.x);
+        const h = Math.abs(end.y - start.y);
+
+        if (w < 2 || h < 2) {
+            ctx.restore();
+            clearShapePreview();
+            return;
+        }
+
+        if (currentShapeType === 'rect') {
+            ctx.strokeRect(x, y, w, h);
+        } else {
+            const centerX = x + w / 2;
+            const centerY = y + h / 2;
+            ctx.ellipse(centerX, centerY, w / 2, h / 2, 0, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+
+        ctx.closePath();
+        ctx.restore();
+        clearShapePreview();
+    }
+
+    let initialPinchDist = null;
+    let lastTouchCenter = null;
+
     appContainer.addEventListener('touchstart', (e) => {
         if (e.touches.length === 2) {
             isDrawing = false;
-            initialPinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-            lastTouchCenter = { x: (e.touches[0].clientX + e.touches[1].clientX) / 2, y: (e.touches[0].clientY + e.touches[1].clientY) / 2 };
+            moveStartView = null;
+            initialPinchDist = Math.hypot(
+                e.touches[0].clientX - e.touches[1].clientX,
+                e.touches[0].clientY - e.touches[1].clientY
+            );
+            lastTouchCenter = {
+                x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+                y: (e.touches[0].clientY + e.touches[1].clientY) / 2
+            };
         }
     }, { passive: false });
 
     appContainer.addEventListener('touchmove', (e) => {
         if (e.touches.length === 2 && lastTouchCenter) {
             e.preventDefault();
-            const currentDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-            const currentCenter = { x: (e.touches[0].clientX + e.touches[1].clientX) / 2, y: (e.touches[0].clientY + e.touches[1].clientY) / 2 };
+
+            const currentDist = Math.hypot(
+                e.touches[0].clientX - e.touches[1].clientX,
+                e.touches[0].clientY - e.touches[1].clientY
+            );
+            const currentCenter = {
+                x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+                y: (e.touches[0].clientY + e.touches[1].clientY) / 2
+            };
+
             const scaleFactor = currentDist / initialPinchDist;
             let newScale = Math.max(0.3, Math.min(scale * scaleFactor, 5));
             const scaleRatio = newScale / scale;
+
             translateX = currentCenter.x - (currentCenter.x - translateX) * scaleRatio + (currentCenter.x - lastTouchCenter.x);
             translateY = currentCenter.y - (currentCenter.y - translateY) * scaleRatio + (currentCenter.y - lastTouchCenter.y);
-            scale = newScale; initialPinchDist = currentDist; lastTouchCenter = currentCenter;
+
+            scale = newScale;
+            initialPinchDist = currentDist;
+            lastTouchCenter = currentCenter;
             updateTransform();
         }
     }, { passive: false });
-    appContainer.addEventListener('touchend', (e) => { if (e.touches.length < 2) { initialPinchDist = null; lastTouchCenter = null; } });
+
+    appContainer.addEventListener('touchend', (e) => {
+        if (e.touches.length < 2) {
+            initialPinchDist = null;
+            lastTouchCenter = null;
+        }
+    });
+
     appContainer.addEventListener('wheel', (e) => {
         e.preventDefault();
         let newScale = Math.max(0.3, Math.min(scale * Math.exp((e.deltaY < 0 ? 1 : -1) * 0.1), 5));
         const scaleRatio = newScale / scale;
+
         translateX = e.clientX - (e.clientX - translateX) * scaleRatio;
         translateY = e.clientY - (e.clientY - translateY) * scaleRatio;
-        scale = newScale; updateTransform();
+
+        scale = newScale;
+        updateTransform();
     }, { passive: false });
 
-    let isDraggingItem = false; let startX, startY, startLeft, startTop; let activeDragElement = null;
+    let isDraggingItem = false;
+    let startX, startY, startLeft, startTop;
+    let activeDragElement = null;
 
-    canvas.addEventListener('mousedown', startAction); canvas.addEventListener('mousemove', draw);
-    canvas.addEventListener('mouseup', endAction); canvas.addEventListener('mouseout', endAction);
-    canvas.addEventListener('touchstart', (e) => { if(e.touches.length === 1) startAction(e); }, { passive: false });
-    canvas.addEventListener('touchmove', (e) => { if(e.touches.length === 1) draw(e); }, { passive: false });
+    canvas.addEventListener('mousedown', startAction);
+    canvas.addEventListener('mousemove', draw);
+    canvas.addEventListener('mouseup', endAction);
+    canvas.addEventListener('mouseout', endAction);
+
+    canvas.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 1) startAction(e);
+    }, { passive: false });
+
+    canvas.addEventListener('touchmove', (e) => {
+        if (e.touches.length === 1) draw(e);
+    }, { passive: false });
+
     canvas.addEventListener('touchend', endAction);
 
     function startAction(e) {
-        if (e.touches && e.touches.length > 1) return; 
-        let isDeselecting = false; 
-        
+        if (e.touches && e.touches.length > 1) return;
+
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        const pos = getWorkspaceCoords(clientX, clientY);
+
+        let isDeselecting = false;
         if (e.target === canvas) {
-            e.preventDefault(); 
+            e.preventDefault();
             if (activeTextBox) {
                 activeTextBox.blur();
                 if (activeTextBox.parentElement) activeTextBox.parentElement.classList.remove('active');
                 activeTextBox = null;
-                isDeselecting = true; 
+                isDeselecting = true;
             }
         }
-        
-        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-        const pos = getWorkspaceCoords(clientX, clientY);
 
-        if (currentMode === 'text') { 
-            if (isDeselecting) return; 
-            createTextbox(pos.x, pos.y); 
-            return; 
+        if (currentMode === 'text') {
+            if (isDeselecting) return;
+            createTextbox(pos.x, pos.y);
+            return;
         }
-        
-        isDrawing = true; ctx.beginPath(); ctx.moveTo(pos.x, pos.y);
+
+        if (currentMode === 'move') {
+            moveStartView = { clientX, clientY, translateX, translateY };
+            canvas.style.cursor = 'grabbing';
+            return;
+        }
+
+        if (currentMode === 'shape') {
+            shapeStart = pos;
+            isDrawing = true;
+            drawShapePreview(shapeStart, pos);
+            return;
+        }
+
+        isDrawing = true;
+        lastPoint = pos;
+
+        ctx.beginPath();
+        ctx.moveTo(pos.x, pos.y);
+        ctx.globalCompositeOperation = currentMode === 'eraser' ? 'destination-out' : 'source-over';
+        ctx.strokeStyle = currentColor;
+        ctx.lineWidth = currentMode === 'eraser' ? eraserWidth : penWidth;
+
+        if (currentMode === 'pen') {
+            ctx.lineTo(pos.x + 0.01, pos.y + 0.01);
+            ctx.stroke();
+        }
     }
 
     function draw(e) {
-        if (!isDrawing) return; e.preventDefault();
         const clientX = e.touches ? e.touches[0].clientX : e.clientX;
         const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+        if (currentMode === 'move' && moveStartView) {
+            e.preventDefault();
+            translateX = moveStartView.translateX + (clientX - moveStartView.clientX);
+            translateY = moveStartView.translateY + (clientY - moveStartView.clientY);
+            updateTransform();
+            return;
+        }
+
+        if (!isDrawing) return;
+        e.preventDefault();
+
         const pos = getWorkspaceCoords(clientX, clientY);
 
-        if (currentMode === 'pen') {
-            ctx.globalCompositeOperation = 'source-over'; ctx.strokeStyle = currentColor; ctx.lineWidth = penWidth / scale;
-        } else if (currentMode === 'eraser') {
-            ctx.globalCompositeOperation = 'destination-out'; ctx.lineWidth = eraserWidth / scale;
+        if (currentMode === 'shape') {
+            drawShapePreview(shapeStart, pos);
+            return;
         }
-        ctx.lineTo(pos.x, pos.y); ctx.stroke();
-    }
-    function endAction() { isDrawing = false; ctx.closePath(); }
 
-    // ====== 修改：加入 restoreData 支援還原 ======
+        if (currentMode === 'pen' || currentMode === 'eraser') {
+            drawSmoothSegment(lastPoint, pos);
+            lastPoint = pos;
+        }
+    }
+
+    function endAction(e) {
+        if (currentMode === 'move') {
+            moveStartView = null;
+            canvas.style.cursor = 'grab';
+        }
+
+        if (currentMode === 'shape' && isDrawing && shapeStart) {
+            let clientX, clientY;
+
+            if (e && e.changedTouches && e.changedTouches[0]) {
+                clientX = e.changedTouches[0].clientX;
+                clientY = e.changedTouches[0].clientY;
+            } else if (e) {
+                clientX = e.clientX;
+                clientY = e.clientY;
+            }
+
+            if (typeof clientX === 'number' && typeof clientY === 'number') {
+                const endPos = getWorkspaceCoords(clientX, clientY);
+                commitShape(shapeStart, endPos);
+            }
+        }
+
+        isDrawing = false;
+        shapeStart = null;
+        lastPoint = null;
+        ctx.closePath();
+    }
+
     function createTextbox(x, y, restoreData = null) {
         const wrapper = document.createElement('div');
-        wrapper.className = 'text-wrapper'; // 預設不 active
-        wrapper.style.left = x + 'px'; wrapper.style.top = y + 'px';
+        wrapper.className = 'text-wrapper';
+        wrapper.style.left = x + 'px';
+        wrapper.style.top = y + 'px';
 
         const handle = document.createElement('div');
-        handle.className = 'text-drag-handle'; handle.innerHTML = '✥ 移動';
+        handle.className = 'text-drag-handle';
+        handle.innerHTML = '✥ 移動';
 
         const textBox = document.createElement('div');
-        textBox.className = 'text-box'; textBox.contentEditable = true;
-        
+        textBox.className = 'text-box';
+        textBox.contentEditable = true;
+
         if (restoreData) {
             textBox.style.width = restoreData.width;
             textBox.style.height = restoreData.height;
@@ -312,35 +545,47 @@
             textBox.innerHTML = restoreData.content;
             textBox.style.backgroundColor = restoreData.hasBg === 'true' ? 'rgba(255, 255, 255, 0.9)' : 'transparent';
         } else {
-            wrapper.classList.add('active'); // 新建時才預設選取
-            textBox.style.width = savedBoxWidth; 
-            textBox.style.height = savedBoxHeight; 
+            wrapper.classList.add('active');
+            textBox.style.width = savedBoxWidth;
+            textBox.style.height = savedBoxHeight;
             textBox.style.fontSize = savedFontSize;
             textBox.style.color = currentColor;
             textBox.dataset.hasBg = globalTextBgEnabled.toString();
         }
 
-        wrapper.appendChild(handle); wrapper.appendChild(textBox); textLayer.appendChild(wrapper);
-        
+        wrapper.appendChild(handle);
+        wrapper.appendChild(textBox);
+        textLayer.appendChild(wrapper);
+
         if (!restoreData) {
-            activeTextBox = textBox; 
+            activeTextBox = textBox;
             updateBgButtonUI(textBox.dataset.hasBg === 'true');
         }
 
         textBox.addEventListener('input', function() {
-            if (this.scrollWidth > this.clientWidth) { this.style.width = (this.scrollWidth + 4) + 'px'; }
-            if (this.scrollHeight > this.clientHeight) { this.style.height = (this.scrollHeight + 4) + 'px'; }
+            if (this.scrollWidth > this.clientWidth) this.style.width = (this.scrollWidth + 4) + 'px';
+            if (this.scrollHeight > this.clientHeight) this.style.height = (this.scrollHeight + 4) + 'px';
         });
 
         const dragStartText = (e) => {
-            isDraggingItem = true; activeDragElement = wrapper;
+            isDraggingItem = true;
+            activeDragElement = wrapper;
+
             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
             const clientY = e.touches ? e.touches[0].clientY : e.clientY;
             const pos = getWorkspaceCoords(clientX, clientY);
-            startX = pos.x; startY = pos.y; startLeft = parseFloat(wrapper.style.left) || 0; startTop = parseFloat(wrapper.style.top) || 0;
-            e.stopPropagation(); e.preventDefault();
+
+            startX = pos.x;
+            startY = pos.y;
+            startLeft = parseFloat(wrapper.style.left) || 0;
+            startTop = parseFloat(wrapper.style.top) || 0;
+
+            e.stopPropagation();
+            e.preventDefault();
         };
-        handle.addEventListener('mousedown', dragStartText); handle.addEventListener('touchstart', dragStartText, {passive: false});
+
+        handle.addEventListener('mousedown', dragStartText);
+        handle.addEventListener('touchstart', dragStartText, { passive: false });
 
         new ResizeObserver(entries => {
             for (let entry of entries) {
@@ -349,21 +594,23 @@
             }
         }).observe(textBox);
 
-        if (!restoreData) { setTimeout(() => { textBox.focus(); }, 0); }
-        
+        if (!restoreData) setTimeout(() => textBox.focus(), 0);
+
         textBox.addEventListener('focus', function() {
-            activeTextBox = this; wrapper.classList.add('active'); 
+            activeTextBox = this;
+            wrapper.classList.add('active');
             updateBgButtonUI(this.dataset.hasBg === 'true');
         });
-        
+
         textBox.addEventListener('blur', function() {
             setTimeout(() => {
                 if (document.activeElement !== this) {
-                    if(this.innerText.trim() === '') { 
-                        wrapper.remove(); if(activeTextBox === this) activeTextBox = null; 
-                    } else { 
-                        wrapper.classList.remove('active'); 
-                        this.style.backgroundColor = this.dataset.hasBg === 'true' ? 'rgba(255, 255, 255, 0.9)' : 'transparent'; 
+                    if (this.innerText.trim() === '') {
+                        wrapper.remove();
+                        if (activeTextBox === this) activeTextBox = null;
+                    } else {
+                        wrapper.classList.remove('active');
+                        this.style.backgroundColor = this.dataset.hasBg === 'true' ? 'rgba(255, 255, 255, 0.9)' : 'transparent';
                     }
                 }
             }, 50);
@@ -371,88 +618,127 @@
     }
 
     window.addEventListener('paste', (e) => {
-        const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+        const items = (e.clipboardData || e.originalEvent?.clipboardData)?.items || [];
         for (let item of items) {
             if (item.type.indexOf('image') === 0) {
                 const blob = item.getAsFile();
                 const reader = new FileReader();
+
                 reader.onload = (event) => {
                     const img = new Image();
                     img.onload = () => {
                         createDraggableImage(img.src, img.width, img.height);
-                        showToast("圖片已貼上！已自動切換為「移動」工具");
+                        showToast('圖片已貼上！已自動切換為「移動」工具');
                         setMode('move');
                     };
                     img.src = event.target.result;
                 };
+
                 reader.readAsDataURL(blob);
             }
         }
     });
 
-    // ====== 修改：加入 restoreLeft, restoreTop 支援還原 ======
     function createDraggableImage(src, origW, origH, restoreLeft = null, restoreTop = null, restoreWidth = null, restoreHeight = null) {
-        const wrapper = document.createElement('div'); wrapper.className = 'pasted-image-wrapper';
-        const img = document.createElement('img'); img.src = src;
-        
+        const wrapper = document.createElement('div');
+        wrapper.className = 'pasted-image-wrapper';
+
+        const img = document.createElement('img');
+        img.src = src;
+
         if (restoreLeft !== null) {
             wrapper.style.width = restoreWidth;
             wrapper.style.height = restoreHeight;
             wrapper.style.left = restoreLeft;
             wrapper.style.top = restoreTop;
         } else {
-            let w = origW; let h = origH; const maxW = 1000;
-            if (w > maxW) { h = h * (maxW / w); w = maxW; }
-            wrapper.style.width = w + 'px'; wrapper.style.height = h + 'px';
+            let w = origW;
+            let h = origH;
+            const maxW = 1000;
+
+            if (w > maxW) {
+                h = h * (maxW / w);
+                w = maxW;
+            }
+
+            wrapper.style.width = w + 'px';
+            wrapper.style.height = h + 'px';
+
             const viewCenterX = (window.innerWidth / 2 - translateX) / scale;
             const viewCenterY = (window.innerHeight / 2 - translateY) / scale;
-            wrapper.style.left = (viewCenterX - w/2) + 'px'; wrapper.style.top = (viewCenterY - h/2) + 'px';
+            wrapper.style.left = (viewCenterX - w / 2) + 'px';
+            wrapper.style.top = (viewCenterY - h / 2) + 'px';
         }
-        
+
         const delBtn = document.createElement('button');
-        delBtn.innerHTML = '🗑️'; delBtn.className = 'img-del-btn';
-        delBtn.onclick = (e) => { e.stopPropagation(); wrapper.remove(); };
-        
-        wrapper.appendChild(img); wrapper.appendChild(delBtn); imageLayer.appendChild(wrapper);
+        delBtn.innerHTML = '🗑️';
+        delBtn.className = 'img-del-btn';
+        delBtn.onclick = (e) => {
+            e.stopPropagation();
+            wrapper.remove();
+        };
+
+        wrapper.appendChild(img);
+        wrapper.appendChild(delBtn);
+        imageLayer.appendChild(wrapper);
 
         const dragStartImg = (e) => {
             if (currentMode !== 'move') return;
-            isDraggingItem = true; activeDragElement = wrapper;
+
+            isDraggingItem = true;
+            activeDragElement = wrapper;
+
             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
             const clientY = e.touches ? e.touches[0].clientY : e.clientY;
             const pos = getWorkspaceCoords(clientX, clientY);
-            startX = pos.x; startY = pos.y; startLeft = parseFloat(wrapper.style.left); startTop = parseFloat(wrapper.style.top);
+
+            startX = pos.x;
+            startY = pos.y;
+            startLeft = parseFloat(wrapper.style.left);
+            startTop = parseFloat(wrapper.style.top);
+
             e.stopPropagation();
+            e.preventDefault();
         };
 
-        wrapper.addEventListener('mousedown', dragStartImg); wrapper.addEventListener('touchstart', dragStartImg, {passive: false});
+        wrapper.addEventListener('mousedown', dragStartImg);
+        wrapper.addEventListener('touchstart', dragStartImg, { passive: false });
     }
 
     const dragMove = (e) => {
         if (!isDraggingItem || !activeDragElement) return;
         if (e.touches && e.touches.length > 1) return;
+
         const clientX = e.touches ? e.touches[0].clientX : e.clientX;
         const clientY = e.touches ? e.touches[0].clientY : e.clientY;
         const pos = getWorkspaceCoords(clientX, clientY);
-        activeDragElement.style.left = (startLeft + (pos.x - startX)) + 'px'; 
+
+        activeDragElement.style.left = (startLeft + (pos.x - startX)) + 'px';
         activeDragElement.style.top = (startTop + (pos.y - startY)) + 'px';
-        e.preventDefault(); e.stopPropagation();
+
+        e.preventDefault();
+        e.stopPropagation();
     };
-    const dragEnd = () => { isDraggingItem = false; activeDragElement = null; };
 
-    window.addEventListener('mousemove', dragMove); window.addEventListener('mouseup', dragEnd);
-    window.addEventListener('touchmove', dragMove, {passive: false}); window.addEventListener('touchend', dragEnd);
+    const dragEnd = () => {
+        isDraggingItem = false;
+        activeDragElement = null;
+    };
 
-    // ====== 新增：備份系統 ======
+    window.addEventListener('mousemove', dragMove);
+    window.addEventListener('mouseup', dragEnd);
+    window.addEventListener('touchmove', dragMove, { passive: false });
+    window.addEventListener('touchend', dragEnd);
+
     function backupWhiteboard() {
-        showToast("正在打包資料，請稍候...");
+        showToast('正在打包資料，請稍候...');
+
         const data = {
             canvas: canvas.toDataURL(),
             texts: [],
             images: []
         };
 
-        // 收集所有文字
         document.querySelectorAll('.text-wrapper').forEach(wrapper => {
             const box = wrapper.querySelector('.text-box');
             data.texts.push({
@@ -467,7 +753,6 @@
             });
         });
 
-        // 收集所有圖片
         document.querySelectorAll('.pasted-image-wrapper').forEach(wrapper => {
             const img = wrapper.querySelector('img');
             data.images.push({
@@ -479,21 +764,20 @@
             });
         });
 
-        // 建立下載
-        const blob = new Blob([JSON.stringify(data)], {type: "application/json"});
+        const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        // 使用時間戳記當作預設檔名
+
         const date = new Date();
-        const timeString = `${date.getMonth()+1}${date.getDate()}_${date.getHours()}${date.getMinutes()}`;
-        a.download = `白板備課資料_${timeString}.wbd`; 
+        const timeString = `${date.getMonth() + 1}${date.getDate()}_${date.getHours()}${date.getMinutes()}`;
+        a.download = `白板備課資料_${timeString}.wbd`;
+
         a.click();
         URL.revokeObjectURL(url);
-        showToast("💾 備份檔案已成功下載！");
+        showToast('💾 備份檔案已成功下載！');
     }
 
-    // ====== 新增：還原系統 ======
     function restoreWhiteboard(e) {
         const file = e.target.files[0];
         if (!file) return;
@@ -502,51 +786,54 @@
         reader.onload = function(event) {
             try {
                 const data = JSON.parse(event.target.result);
-                
-                // 清空當前畫布
+
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
+                clearShapePreview();
                 textLayer.innerHTML = '';
                 imageLayer.innerHTML = '';
                 activeTextBox = null;
 
-                // 1. 還原畫布筆跡
                 if (data.canvas) {
                     const img = new Image();
-                    img.onload = () => { ctx.drawImage(img, 0, 0); };
+                    img.onload = () => {
+                        ctx.drawImage(img, 0, 0);
+                    };
                     img.src = data.canvas;
                 }
 
-                // 2. 還原圖片
                 if (data.images) {
                     data.images.forEach(imgData => {
                         createDraggableImage(imgData.src, 0, 0, imgData.left, imgData.top, imgData.width, imgData.height);
                     });
                 }
 
-                // 3. 還原文字
                 if (data.texts) {
                     data.texts.forEach(t => {
                         createTextbox(parseFloat(t.left), parseFloat(t.top), t);
                     });
                 }
 
-                showToast("📂 備份檔還原成功！");
-                
+                showToast('📂 備份檔還原成功！');
             } catch (err) {
-                alert("無法還原：備份檔格式不正確。");
+                alert('無法還原：備份檔格式不正確。');
             }
         };
+
         reader.readAsText(file);
-        e.target.value = ''; // 重置 input 以便下次能選同一個檔案
+        e.target.value = '';
     }
 
     function clearCanvas() {
-        if(confirm('確定要清除整個白板嗎？')) {
+        if (confirm('確定要清除整個白板嗎？')) {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            textLayer.innerHTML = ''; imageLayer.innerHTML = '';
+            clearShapePreview();
+            textLayer.innerHTML = '';
+            imageLayer.innerHTML = '';
             activeTextBox = null;
         }
     }
+
+    updateCanvasInteractivity();
 </script>
 </body>
 </html>
