@@ -86,7 +86,6 @@
             z-index: 21;
         }
 
-        /* 重點修正：改成絕對定位，不再佔版面高度，避免文字框位移 */
         .text-drag-handle {
             position: absolute;
             left: 0;
@@ -229,15 +228,28 @@
             border-color: #2980b9;
         }
 
+        .toolbar-group {
+            display: none;
+            gap: 5px;
+            border-left: 1px solid #7f8c8d;
+            padding-left: 10px;
+            margin-left: 5px;
+            align-items: center;
+        }
+
+        .toolbar-group.show {
+            display: flex;
+        }
+
         .file-controls,
         .font-size-controls,
-        .color-picker-container,
-        .shape-controls {
+        .color-picker-container {
             display: flex;
             gap: 5px;
             border-left: 1px solid #7f8c8d;
             padding-left: 10px;
             margin-left: 5px;
+            align-items: center;
         }
 
         .file-controls button {
@@ -263,7 +275,12 @@
             border-color: #95a5a6;
         }
 
-        .shape-controls button.active {
+        #pen-options button.active {
+            background-color: #8e44ad;
+            border-color: #732d91;
+        }
+
+        #shape-controls button.active {
             background-color: #16a085;
             border-color: #13856d;
         }
@@ -307,7 +324,12 @@
         <button id="btn-eraser" onclick="setMode('eraser')">🧽 擦布</button>
         <button onclick="clearCanvas()">🗑️ 清除</button>
 
-        <div class="shape-controls">
+        <div id="pen-options" class="toolbar-group">
+            <button id="pen-freehand" class="active" onmousedown="setPenType(event, 'freehand')">〰️ 隨意</button>
+            <button id="pen-line" onmousedown="setPenType(event, 'line')">📏 直線</button>
+        </div>
+
+        <div id="shape-controls" class="toolbar-group">
             <button id="shape-rect" class="active" onmousedown="setShapeType(event, 'rect')">⬜ 方形</button>
             <button id="shape-circle" onmousedown="setShapeType(event, 'circle')">⚪ 圓形</button>
         </div>
@@ -359,6 +381,7 @@
     let currentMode = 'pen';
     let currentColor = '#000000';
     let currentShapeType = 'rect';
+    let currentPenType = 'freehand';
     let penWidth = 4;
     let eraserWidth = 40;
     let activeTextBox = null;
@@ -370,6 +393,7 @@
 
     let lastPoint = null;
     let shapeStart = null;
+    let lineStart = null;
     let moveStartView = null;
 
     function updateTransform() {
@@ -394,6 +418,11 @@
         previewCanvas.style.pointerEvents = 'none';
     }
 
+    function updateToolOptionVisibility() {
+        document.getElementById('pen-options').classList.toggle('show', currentMode === 'pen');
+        document.getElementById('shape-controls').classList.toggle('show', currentMode === 'shape');
+    }
+
     function setMode(mode) {
         currentMode = mode;
         document.querySelectorAll('#toolbar > button[id^="btn-"]').forEach(btn => {
@@ -404,6 +433,14 @@
         document.body.className = `mode-${mode}`;
         clearShapePreview();
         updateCanvasInteractivity();
+        updateToolOptionVisibility();
+    }
+
+    function setPenType(e, type) {
+        e.preventDefault();
+        currentPenType = type;
+        document.getElementById('pen-freehand').classList.toggle('active', type === 'freehand');
+        document.getElementById('pen-line').classList.toggle('active', type === 'line');
     }
 
     function setShapeType(e, type) {
@@ -522,6 +559,32 @@
             ctx.stroke();
         }
 
+        ctx.closePath();
+        ctx.restore();
+        clearShapePreview();
+    }
+
+    function drawLinePreview(start, end) {
+        clearShapePreview();
+        previewCtx.globalCompositeOperation = 'source-over';
+        previewCtx.strokeStyle = currentColor;
+        previewCtx.lineWidth = penWidth;
+        previewCtx.beginPath();
+        previewCtx.moveTo(start.x, start.y);
+        previewCtx.lineTo(end.x, end.y);
+        previewCtx.stroke();
+        previewCtx.closePath();
+    }
+
+    function commitLine(start, end) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.strokeStyle = currentColor;
+        ctx.lineWidth = penWidth;
+        ctx.beginPath();
+        ctx.moveTo(start.x, start.y);
+        ctx.lineTo(end.x, end.y);
+        ctx.stroke();
         ctx.closePath();
         ctx.restore();
         clearShapePreview();
@@ -647,6 +710,13 @@
             return;
         }
 
+        if (currentMode === 'pen' && currentPenType === 'line') {
+            lineStart = pos;
+            isDrawing = true;
+            drawLinePreview(lineStart, pos);
+            return;
+        }
+
         isDrawing = true;
         lastPoint = pos;
 
@@ -656,7 +726,10 @@
         ctx.strokeStyle = currentColor;
         ctx.lineWidth = currentMode === 'eraser' ? eraserWidth : penWidth;
 
-        if (currentMode === 'pen') {
+        if (currentMode === 'pen' && currentPenType === 'freehand') {
+            ctx.lineTo(pos.x + 0.01, pos.y + 0.01);
+            ctx.stroke();
+        } else if (currentMode === 'eraser') {
             ctx.lineTo(pos.x + 0.01, pos.y + 0.01);
             ctx.stroke();
         }
@@ -684,7 +757,12 @@
             return;
         }
 
-        if (currentMode === 'pen' || currentMode === 'eraser') {
+        if (currentMode === 'pen' && currentPenType === 'line') {
+            drawLinePreview(lineStart, pos);
+            return;
+        }
+
+        if ((currentMode === 'pen' && currentPenType === 'freehand') || currentMode === 'eraser') {
             drawSmoothSegment(lastPoint, pos);
             lastPoint = pos;
         }
@@ -713,8 +791,26 @@
             }
         }
 
+        if (currentMode === 'pen' && currentPenType === 'line' && isDrawing && lineStart) {
+            let clientX, clientY;
+
+            if (e && e.changedTouches && e.changedTouches[0]) {
+                clientX = e.changedTouches[0].clientX;
+                clientY = e.changedTouches[0].clientY;
+            } else if (e) {
+                clientX = e.clientX;
+                clientY = e.clientY;
+            }
+
+            if (typeof clientX === 'number' && typeof clientY === 'number') {
+                const endPos = getWorkspaceCoords(clientX, clientY);
+                commitLine(lineStart, endPos);
+            }
+        }
+
         isDrawing = false;
         shapeStart = null;
+        lineStart = null;
         lastPoint = null;
         ctx.closePath();
     }
@@ -1033,6 +1129,7 @@
     }
 
     updateCanvasInteractivity();
+    updateToolOptionVisibility();
 </script>
 </body>
 </html>
