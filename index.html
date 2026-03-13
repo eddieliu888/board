@@ -65,6 +65,7 @@
             pointer-events: none;
         }
 
+        /* 關鍵修正：整層永遠不攔截空白區域事件 */
         #text-layer {
             position: absolute;
             top: 0;
@@ -78,7 +79,7 @@
         .text-wrapper {
             position: absolute;
             transform-origin: 0 0;
-            pointer-events: auto;
+            pointer-events: none;
             z-index: 20;
         }
 
@@ -386,8 +387,8 @@
     let eraserWidth = 40;
     let activeTextBox = null;
 
-    let savedBoxWidth = '250px';
-    let savedBoxHeight = '60px';
+    const DEFAULT_BOX_WIDTH = '250px';
+    const DEFAULT_BOX_HEIGHT = '60px';
     let savedFontSize = '32px';
     let globalTextBgEnabled = false;
 
@@ -418,6 +419,17 @@
         previewCanvas.style.pointerEvents = 'none';
     }
 
+    function updateTextLayerInteractivity() {
+        const allowTextInteraction = currentMode === 'text' || currentMode === 'move';
+
+        // 關鍵：textLayer 本身永遠不攔截空白區域事件
+        textLayer.style.pointerEvents = 'none';
+
+        document.querySelectorAll('.text-wrapper').forEach(wrapper => {
+            wrapper.style.pointerEvents = allowTextInteraction ? 'auto' : 'none';
+        });
+    }
+
     function updateToolOptionVisibility() {
         document.getElementById('pen-options').classList.toggle('show', currentMode === 'pen');
         document.getElementById('shape-controls').classList.toggle('show', currentMode === 'shape');
@@ -434,6 +446,7 @@
         clearShapePreview();
         updateCanvasInteractivity();
         updateToolOptionVisibility();
+        updateTextLayerInteractivity();
     }
 
     function setPenType(e, type) {
@@ -839,8 +852,8 @@
             textBox.style.backgroundColor = restoreData.hasBg === 'true' ? 'rgba(255, 255, 255, 0.9)' : 'transparent';
         } else {
             wrapper.classList.add('active');
-            textBox.style.width = savedBoxWidth;
-            textBox.style.height = savedBoxHeight;
+            textBox.style.width = DEFAULT_BOX_WIDTH;
+            textBox.style.height = DEFAULT_BOX_HEIGHT;
             textBox.style.fontSize = savedFontSize;
             textBox.style.color = currentColor;
             textBox.dataset.hasBg = globalTextBgEnabled.toString();
@@ -856,12 +869,16 @@
             updateBgButtonUI(textBox.dataset.hasBg === 'true');
         }
 
+        updateTextLayerInteractivity();
+
         textBox.addEventListener('input', function() {
             if (this.scrollWidth > this.clientWidth) this.style.width = (this.scrollWidth + 4) + 'px';
             if (this.scrollHeight > this.clientHeight) this.style.height = (this.scrollHeight + 4) + 'px';
         });
 
         const dragStartText = (e) => {
+            if (currentMode !== 'text' && currentMode !== 'move') return;
+
             isDraggingItem = true;
             activeDragElement = wrapper;
 
@@ -880,13 +897,6 @@
 
         handle.addEventListener('mousedown', dragStartText);
         handle.addEventListener('touchstart', dragStartText, { passive: false });
-
-        new ResizeObserver(entries => {
-            for (let entry of entries) {
-                savedBoxWidth = entry.target.style.width || entry.contentRect.width + 'px';
-                savedBoxHeight = entry.target.style.height || entry.contentRect.height + 'px';
-            }
-        }).observe(textBox);
 
         if (!restoreData) setTimeout(() => textBox.focus(), 0);
 
@@ -1108,6 +1118,7 @@
                     });
                 }
 
+                updateTextLayerInteractivity();
                 showToast('📂 備份檔還原成功！');
             } catch (err) {
                 alert('無法還原：備份檔格式不正確。');
@@ -1125,11 +1136,13 @@
             textLayer.innerHTML = '';
             imageLayer.innerHTML = '';
             activeTextBox = null;
+            updateTextLayerInteractivity();
         }
     }
 
     updateCanvasInteractivity();
     updateToolOptionVisibility();
+    updateTextLayerInteractivity();
 </script>
 </body>
 </html>
