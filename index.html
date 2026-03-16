@@ -98,17 +98,42 @@
             font-size: 14px;
             display: none;
             align-items: center;
-            justify-content: center;
+            justify-content: space-between;
+            padding: 0 10px;
             cursor: move;
             border-radius: 6px 6px 0 0;
             user-select: none;
             touch-action: none;
             font-family: sans-serif;
             box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+            box-sizing: border-box;
         }
 
         .text-wrapper.active .text-drag-handle {
             display: flex;
+        }
+
+        .drag-text {
+            pointer-events: none;
+        }
+
+        .text-copy-btn, .text-del-btn {
+            cursor: pointer;
+            pointer-events: auto;
+            font-size: 12px;
+            background: rgba(255,255,255,0.2);
+            padding: 2px 6px;
+            border-radius: 4px;
+            transition: background 0.2s, color 0.2s;
+        }
+
+        .text-copy-btn:hover {
+            background: rgba(255,255,255,0.4);
+        }
+
+        .text-del-btn:hover {
+            background: #e74c3c;
+            color: white;
         }
 
         .text-box {
@@ -118,8 +143,8 @@
             color: #000000;
             outline: none;
             cursor: text;
-            resize: both;
-            overflow: auto;
+            resize: none; /* 修正：預設隱藏縮放點 */
+            overflow: hidden; /* 修正：隱藏多餘的縮放空間 */
             font-weight: bold;
             border-radius: 6px;
             min-width: 50px;
@@ -132,6 +157,8 @@
         .text-wrapper.active .text-box {
             border-color: #3498db;
             background-color: #ffffff !important;
+            resize: both; /* 修正：只有在被選取/編輯時，才允許縮放並顯示縮放點 */
+            overflow: auto;
         }
 
         .text-box::-webkit-scrollbar {
@@ -163,7 +190,8 @@
             cursor: grabbing;
         }
 
-        body.mode-move .img-del-btn {
+        body.mode-move .img-del-btn, 
+        body.mode-move .img-copy-btn {
             display: block;
         }
 
@@ -184,27 +212,106 @@
             z-index: 6;
         }
 
+        .img-copy-btn {
+            display: none;
+            position: absolute;
+            top: -15px;
+            right: 25px;
+            background: #f39c12;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 35px;
+            height: 35px;
+            font-size: 16px;
+            cursor: pointer;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            z-index: 6;
+        }
+
+        #btn-toggle-toolbar {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000;
+            display: none;
+            background-color: #3498db;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 30px;
+            font-size: 16px;
+            font-weight: bold;
+            border: 2px solid #2980b9;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        #btn-toggle-toolbar:hover {
+            background-color: #2980b9;
+            transform: translateX(-50%) scale(1.05);
+        }
+
+        #btn-toggle-toolbar.show {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
         #toolbar {
             position: absolute;
             bottom: 20px;
             left: 50%;
             transform: translateX(-50%);
             background-color: #2c3e50;
-            padding: 10px 20px;
-            border-radius: 30px;
+            padding: 12px 16px;
+            border-radius: 20px;
             display: flex;
-            gap: 8px;
+            flex-direction: column; /* 強制分行結構 */
+            gap: 10px;
             align-items: center;
             box-shadow: 0 4px 15px rgba(0,0,0,0.2);
             z-index: 1000;
-            flex-wrap: nowrap;
-            max-width: calc(100vw - 24px);
+            max-width: 95vw;
+        }
+
+        /* 明確定義的兩排工具列 */
+        .toolbar-row {
+            display: flex;
+            flex-wrap: nowrap; /* 絕對不換行至第三行 */
+            gap: 8px;
+            align-items: center;
+            justify-content: safe center; /* 若空間不夠允許從左至右滑動 */
+            width: 100%;
             overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
             scrollbar-width: none;
         }
 
-        #toolbar::-webkit-scrollbar {
+        .toolbar-row::-webkit-scrollbar {
             display: none;
+        }
+
+        .drag-handle {
+            background: rgba(241, 196, 15, 0.2);
+            color: #f1c40f;
+            padding: 8px 12px;
+            border-radius: 20px;
+            cursor: grab;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            user-select: none;
+            touch-action: none;
+            border: 1px dashed #f1c40f;
+            font-size: 14px;
+            white-space: nowrap;
+        }
+
+        .drag-handle:active {
+            cursor: grabbing;
+            background: rgba(241, 196, 15, 0.4);
         }
 
         button {
@@ -232,14 +339,52 @@
         .toolbar-group {
             display: none;
             gap: 5px;
-            border-left: 1px solid #7f8c8d;
-            padding-left: 10px;
-            margin-left: 5px;
             align-items: center;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 4px 10px;
+            border-radius: 20px;
         }
 
         .toolbar-group.show {
             display: flex;
+        }
+
+        #size-controls {
+            display: none;
+            gap: 5px;
+            align-items: center;
+            color: white;
+            font-size: 14px;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 4px 10px;
+            border-radius: 20px;
+        }
+
+        #size-controls.show {
+            display: flex;
+        }
+
+        #size-slider {
+            width: 80px;
+            cursor: pointer;
+            accent-color: #3498db;
+        }
+
+        #size-display {
+            min-width: 35px;
+            text-align: center;
+        }
+
+        .reset-size-btn {
+            padding: 4px 8px;
+            font-size: 12px;
+            border: 1px solid #bdc3c7;
+            border-radius: 12px;
+        }
+
+        .reset-size-btn:hover {
+            background-color: #bdc3c7;
+            color: #2c3e50;
         }
 
         .file-controls,
@@ -247,10 +392,10 @@
         .color-picker-container {
             display: flex;
             gap: 5px;
-            border-left: 1px solid #7f8c8d;
-            padding-left: 10px;
-            margin-left: 5px;
             align-items: center;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 4px 10px;
+            border-radius: 20px;
         }
 
         .file-controls button {
@@ -302,6 +447,74 @@
             z-index: 1001;
             font-weight: bold;
         }
+
+        /* --- 客製化確認視窗樣式 --- */
+        #custom-confirm-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: rgba(0, 0, 0, 0.6);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000; /* 確保在最上層 */
+            backdrop-filter: blur(2px);
+        }
+
+        .confirm-box {
+            background-color: #ffffff;
+            padding: 30px 40px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            text-align: center;
+            max-width: 90%;
+        }
+
+        .confirm-box h2 {
+            margin: 0 0 10px 0;
+            color: #2c3e50;
+            font-family: inherit;
+        }
+
+        .confirm-box p {
+            margin: 0 0 25px 0;
+            color: #7f8c8d;
+            font-size: 16px;
+        }
+
+        .confirm-btns {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+        }
+
+        .confirm-btns button {
+            padding: 10px 25px;
+            font-size: 16px;
+            border-radius: 8px;
+        }
+
+        .confirm-btns .btn-cancel {
+            background-color: #ecf0f1;
+            color: #34495e;
+            border: 1px solid #bdc3c7;
+        }
+
+        .confirm-btns .btn-cancel:hover {
+            background-color: #bdc3c7;
+        }
+
+        .confirm-btns .btn-confirm {
+            background-color: #e74c3c;
+            color: white;
+            border: 1px solid #c0392b;
+        }
+
+        .confirm-btns .btn-confirm:hover {
+            background-color: #c0392b;
+        }
     </style>
 </head>
 <body class="mode-pen">
@@ -316,42 +529,74 @@
 
     <div id="toast">提示訊息</div>
 
+    <!-- 客製化確認視窗 HTML -->
+    <div id="custom-confirm-modal">
+        <div class="confirm-box">
+            <h2>🗑️ 清除白板</h2>
+            <p>確定要清除整個白板上的所有內容嗎？<br><small>(此動作無法復原)</small></p>
+            <div class="confirm-btns">
+                <button class="btn-cancel" onclick="closeConfirmModal()">取消</button>
+                <button class="btn-confirm" onclick="executeClearCanvas()">確定清除</button>
+            </div>
+        </div>
+    </div>
+
+    <button id="btn-toggle-toolbar" onclick="toggleToolbar()">
+        🛠️ 展開工具列
+    </button>
+
     <div id="toolbar">
-        <button id="btn-move" onclick="setMode('move')">👆 移動</button>
-        <button id="btn-pen" class="active" onclick="setMode('pen')">✏️ 畫筆</button>
-        <button id="btn-shape" onclick="setMode('shape')">📐 形狀</button>
-        <button id="btn-text" onclick="setMode('text')">🔤 文字</button>
-        <button id="btn-bg-toggle" onclick="toggleTextBg()">🔲 底色: 無</button>
-        <button id="btn-eraser" onclick="setMode('eraser')">🧽 擦布</button>
-        <button onclick="clearCanvas()">🗑️ 清除</button>
-
-        <div id="pen-options" class="toolbar-group">
-            <button id="pen-freehand" class="active" onmousedown="setPenType(event, 'freehand')">〰️ 隨意</button>
-            <button id="pen-line" onmousedown="setPenType(event, 'line')">📏 直線</button>
+        <!-- 第一行：主要控制工具與系統選項 -->
+        <div class="toolbar-row">
+            <div id="toolbar-drag-handle" class="drag-handle" title="按住拖曳工具列">✥ 拖曳</div>
+            <button id="btn-minimize-tb" onclick="toggleToolbar()" style="background-color: #e74c3c; border-color: #c0392b;">🔽 收起</button>
+            <button id="btn-fullscreen" onclick="toggleFullScreen()" style="color: #ecf0f1; border: 1px dashed #bdc3c7;">🔲 全螢幕</button>
+            <button id="btn-move" onclick="setMode('move')">👆 移動</button>
+            <button id="btn-pen" class="active" onclick="setMode('pen')">✏️ 畫筆</button>
+            <button id="btn-shape" onclick="setMode('shape')">📐 形狀</button>
+            <button id="btn-text" onclick="setMode('text')">🔤 文字</button>
+            <button id="btn-bg-toggle" onclick="toggleTextBg()">🔲 底色: 無</button>
+            <button id="btn-eraser" onclick="setMode('eraser')">🧽 擦布</button>
+            <button onclick="requestClearCanvas()">🗑️ 清除</button>
         </div>
 
-        <div id="shape-controls" class="toolbar-group">
-            <button id="shape-rect" class="active" onmousedown="setShapeType(event, 'rect')">⬜ 方形</button>
-            <button id="shape-circle" onmousedown="setShapeType(event, 'circle')">⚪ 圓形</button>
-        </div>
+        <!-- 第二行：子功能、顏色、粗細、存檔 -->
+        <div class="toolbar-row">
+            <div id="pen-options" class="toolbar-group">
+                <button id="pen-freehand" class="active" onmousedown="setPenType(event, 'freehand')">〰️ 隨意</button>
+                <button id="pen-line" onmousedown="setPenType(event, 'line')">📏 直線</button>
+            </div>
 
-        <div class="font-size-controls">
-            <button onmousedown="changeFontSize(event, 4)">A+</button>
-            <button onmousedown="changeFontSize(event, -4)">A-</button>
-        </div>
+            <div id="shape-controls" class="toolbar-group">
+                <button id="shape-rect" class="active" onmousedown="setShapeType(event, 'rect')">⬜ 方形</button>
+                <button id="shape-circle" onmousedown="setShapeType(event, 'circle')">⚪ 圓形</button>
+            </div>
 
-        <div class="color-picker-container">
-            <button class="color-btn white-btn" style="background-color: #ffffff;" onmousedown="changeColor(event, '#ffffff')"></button>
-            <button class="color-btn" style="background-color: #000000;" onmousedown="changeColor(event, '#000000')"></button>
-            <button class="color-btn" style="background-color: #e74c3c;" onmousedown="changeColor(event, '#e74c3c')"></button>
-            <button class="color-btn" style="background-color: #2980b9;" onmousedown="changeColor(event, '#2980b9')"></button>
-            <button class="color-btn" style="background-color: #27ae60;" onmousedown="changeColor(event, '#27ae60')"></button>
-        </div>
+            <div id="size-controls" class="toolbar-group">
+                <span id="size-icon">✏️</span>
+                <input type="range" id="size-slider" min="1" max="100" value="4" oninput="updateSize(this.value)">
+                <span id="size-display">4px</span>
+                <button class="reset-size-btn" onclick="resetSize()" title="回復預設大小">🔄 預設</button>
+            </div>
 
-        <div class="file-controls">
-            <button onclick="backupWhiteboard()">💾 備份</button>
-            <button onclick="document.getElementById('file-upload').click()">📂 還原</button>
-            <input type="file" id="file-upload" style="display: none;" accept=".wbd" onchange="restoreWhiteboard(event)">
+            <div class="font-size-controls">
+                <button onmousedown="changeFontSize(event, 4)">A+</button>
+                <button onmousedown="changeFontSize(event, -4)">A-</button>
+            </div>
+
+            <div class="color-picker-container">
+                <button class="color-btn white-btn" style="background-color: #ffffff;" onmousedown="changeColor(event, '#ffffff')"></button>
+                <button class="color-btn" style="background-color: #000000;" onmousedown="changeColor(event, '#000000')"></button>
+                <button class="color-btn" style="background-color: #e74c3c;" onmousedown="changeColor(event, '#e74c3c')"></button>
+                <button class="color-btn" style="background-color: #2980b9;" onmousedown="changeColor(event, '#2980b9')"></button>
+                <button class="color-btn" style="background-color: #27ae60;" onmousedown="changeColor(event, '#27ae60')"></button>
+            </div>
+
+            <div class="file-controls">
+                <button onclick="backupWhiteboard()">💾 備份</button>
+                <button onclick="document.getElementById('file-upload').click()">📂 還原</button>
+                <input type="file" id="file-upload" style="display: none;" accept=".wbd" onchange="restoreWhiteboard(event)">
+            </div>
         </div>
     </div>
 </div>
@@ -383,8 +628,15 @@
     let currentColor = '#000000';
     let currentShapeType = 'rect';
     let currentPenType = 'freehand';
-    let penWidth = 4;
-    let eraserWidth = 40;
+
+    const DEFAULT_PEN_WIDTH = 4;
+    const DEFAULT_ERASER_WIDTH = 40;
+    let savedPenWidth = parseInt(localStorage.getItem('wb_penWidth'));
+    let savedEraserWidth = parseInt(localStorage.getItem('wb_eraserWidth'));
+    
+    let penWidth = isNaN(savedPenWidth) ? DEFAULT_PEN_WIDTH : savedPenWidth;
+    let eraserWidth = isNaN(savedEraserWidth) ? DEFAULT_ERASER_WIDTH : savedEraserWidth;
+    
     let activeTextBox = null;
 
     const DEFAULT_BOX_WIDTH = '250px';
@@ -396,6 +648,141 @@
     let shapeStart = null;
     let lineStart = null;
     let moveStartView = null;
+
+    // --- 全螢幕功能 ---
+    function toggleFullScreen() {
+        const doc = window.document;
+        const docEl = doc.documentElement;
+
+        const requestFullScreen = docEl.requestFullscreen || docEl.mozRequestFullScreen || docEl.webkitRequestFullScreen || docEl.msRequestFullscreen;
+        const cancelFullScreen = doc.exitFullscreen || doc.mozCancelFullScreen || doc.webkitExitFullscreen || doc.msExitFullscreen;
+
+        if (!doc.fullscreenElement && !doc.mozFullScreenElement && !doc.webkitFullscreenElement && !doc.msFullscreenElement) {
+            requestFullScreen.call(docEl).catch(err => {
+                showToast(`無法進入全螢幕：${err.message}`);
+            });
+        }
+        else {
+            cancelFullScreen.call(doc);
+        }
+    }
+
+    // 監聽全螢幕變化以更新按鈕文字
+    ['fullscreenchange', 'webkitfullscreenchange', 'mozfullscreenchange', 'MSFullscreenChange'].forEach(
+        eventType => document.addEventListener(eventType, updateFullscreenBtn)
+    );
+
+    function updateFullscreenBtn() {
+        const btn = document.getElementById('btn-fullscreen');
+        if (document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement) {
+            btn.innerText = '🔲 退出全螢幕';
+        } else {
+            btn.innerText = '🔲 全螢幕';
+        }
+    }
+
+    // --- 工具列收合與拖曳邏輯 ---
+    const toolbarEl = document.getElementById('toolbar');
+    const tbDragHandle = document.getElementById('toolbar-drag-handle');
+    let isToolbarMinimized = false;
+    
+    function toggleToolbar() {
+        const btnToggle = document.getElementById('btn-toggle-toolbar');
+        isToolbarMinimized = !isToolbarMinimized;
+        
+        if (isToolbarMinimized) {
+            toolbarEl.style.display = 'none';
+            btnToggle.classList.add('show');
+            showToast('工具列已收起，享有完整白板空間！');
+        } else {
+            toolbarEl.style.display = 'flex';
+            btnToggle.classList.remove('show');
+            checkToolbarBounds(); // 展開時檢查是否在螢幕外
+        }
+    }
+
+    let isDraggingTB = false;
+    let tbOffsetX, tbOffsetY;
+
+    const startTBDrag = (e) => {
+        isDraggingTB = true;
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        
+        const style = window.getComputedStyle(toolbarEl);
+        if (style.transform !== 'none') {
+            const rect = toolbarEl.getBoundingClientRect();
+            toolbarEl.style.transform = 'none';
+            toolbarEl.style.left = rect.left + 'px';
+            toolbarEl.style.top = rect.top + 'px';
+            toolbarEl.style.bottom = 'auto'; 
+        }
+
+        const rect = toolbarEl.getBoundingClientRect();
+        tbOffsetX = clientX - rect.left;
+        tbOffsetY = clientY - rect.top;
+        
+        e.preventDefault();
+        e.stopPropagation();
+    };
+
+    const moveTBDrag = (e) => {
+        if (!isDraggingTB) return;
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        
+        let newLeft = clientX - tbOffsetX;
+        let newTop = clientY - tbOffsetY;
+
+        const rect = toolbarEl.getBoundingClientRect();
+        newLeft = Math.max(0, Math.min(newLeft, window.innerWidth - rect.width));
+        newTop = Math.max(0, Math.min(newTop, window.innerHeight - rect.height));
+
+        toolbarEl.style.left = newLeft + 'px';
+        toolbarEl.style.top = newTop + 'px';
+        toolbarEl.style.bottom = 'auto';
+
+        e.preventDefault();
+        e.stopPropagation();
+    };
+
+    const endTBDrag = () => {
+        isDraggingTB = false;
+    };
+
+    tbDragHandle.addEventListener('mousedown', startTBDrag);
+    tbDragHandle.addEventListener('touchstart', startTBDrag, {passive: false});
+    window.addEventListener('mousemove', moveTBDrag, {passive: false});
+    window.addEventListener('touchmove', moveTBDrag, {passive: false});
+    window.addEventListener('mouseup', endTBDrag);
+    window.addEventListener('touchend', endTBDrag);
+
+    // --- 螢幕縮放時，防止工具列跑出視窗外 ---
+    function checkToolbarBounds() {
+        if (toolbarEl.style.display === 'none' || window.getComputedStyle(toolbarEl).transform !== 'none') return;
+        
+        const rect = toolbarEl.getBoundingClientRect();
+        let currentLeft = parseFloat(toolbarEl.style.left) || 0;
+        let currentTop = parseFloat(toolbarEl.style.top) || 0;
+        let adjusted = false;
+
+        if (rect.right > window.innerWidth) {
+            currentLeft = Math.max(0, window.innerWidth - rect.width - 20);
+            adjusted = true;
+        }
+        if (rect.bottom > window.innerHeight) {
+            currentTop = Math.max(0, window.innerHeight - rect.height - 20);
+            adjusted = true;
+        }
+        if (rect.left < 0) { currentLeft = 20; adjusted = true; }
+        if (rect.top < 0) { currentTop = 20; adjusted = true; }
+
+        if (adjusted) {
+            toolbarEl.style.left = currentLeft + 'px';
+            toolbarEl.style.top = currentTop + 'px';
+        }
+    }
+    window.addEventListener('resize', checkToolbarBounds);
 
     function updateTransform() {
         workspace.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
@@ -421,10 +808,7 @@
 
     function updateTextLayerInteractivity() {
         const allowTextInteraction = currentMode === 'text' || currentMode === 'move';
-
-        // 關鍵：textLayer 本身永遠不攔截空白區域事件
         textLayer.style.pointerEvents = 'none';
-
         document.querySelectorAll('.text-wrapper').forEach(wrapper => {
             wrapper.style.pointerEvents = allowTextInteraction ? 'auto' : 'none';
         });
@@ -433,12 +817,53 @@
     function updateToolOptionVisibility() {
         document.getElementById('pen-options').classList.toggle('show', currentMode === 'pen');
         document.getElementById('shape-controls').classList.toggle('show', currentMode === 'shape');
+
+        const isSizeTool = ['pen', 'eraser', 'shape'].includes(currentMode);
+        document.getElementById('size-controls').classList.toggle('show', isSizeTool);
+        
+        if (isSizeTool) {
+            const slider = document.getElementById('size-slider');
+            const isEraser = currentMode === 'eraser';
+            slider.value = isEraser ? eraserWidth : penWidth;
+            slider.max = isEraser ? 200 : 50;
+            document.getElementById('size-icon').innerText = isEraser ? '🧽' : '✏️';
+            document.getElementById('size-display').innerText = slider.value + 'px';
+        }
+    }
+
+    function updateSize(val) {
+        const isEraser = currentMode === 'eraser';
+        if (isEraser) {
+            eraserWidth = parseInt(val);
+            localStorage.setItem('wb_eraserWidth', eraserWidth);
+        } else {
+            penWidth = parseInt(val);
+            localStorage.setItem('wb_penWidth', penWidth);
+        }
+        document.getElementById('size-display').innerText = val + 'px';
+    }
+
+    function resetSize() {
+        const isEraser = currentMode === 'eraser';
+        if (isEraser) {
+            eraserWidth = DEFAULT_ERASER_WIDTH;
+            localStorage.setItem('wb_eraserWidth', eraserWidth);
+        } else {
+            penWidth = DEFAULT_PEN_WIDTH;
+            localStorage.setItem('wb_penWidth', penWidth);
+        }
+        const slider = document.getElementById('size-slider');
+        slider.value = isEraser ? eraserWidth : penWidth;
+        document.getElementById('size-display').innerText = slider.value + 'px';
+        showToast(`已回復預設${isEraser ? '擦布' : '畫筆'}大小`);
     }
 
     function setMode(mode) {
         currentMode = mode;
-        document.querySelectorAll('#toolbar > button[id^="btn-"]').forEach(btn => {
-            if (btn.id !== 'btn-bg-toggle') btn.classList.remove('active');
+        document.querySelectorAll('#toolbar button[id^="btn-"]').forEach(btn => {
+            if (btn.id !== 'btn-bg-toggle' && btn.id !== 'btn-minimize-tb' && btn.id !== 'btn-fullscreen') {
+                btn.classList.remove('active');
+            }
         });
         const targetBtn = document.getElementById(`btn-${mode}`);
         if (targetBtn) targetBtn.classList.add('active');
@@ -836,7 +1261,62 @@
 
         const handle = document.createElement('div');
         handle.className = 'text-drag-handle';
-        handle.innerHTML = '✥ 移動';
+        
+        handle.innerHTML = '<span class="drag-text">✥ 移動</span>';
+        
+        // --- 建立放「複製」與「刪除」按鈕的群組 ---
+        const btnGroup = document.createElement('div');
+        btnGroup.style.display = 'flex';
+        btnGroup.style.gap = '5px';
+
+        const copyBtn = document.createElement('span');
+        copyBtn.className = 'text-copy-btn';
+        copyBtn.innerHTML = '📋 複製';
+        copyBtn.title = '複製文字框';
+        
+        const executeCopy = (e) => {
+            e.stopPropagation();
+            e.preventDefault(); 
+            const currentLeft = parseFloat(wrapper.style.left) || 0;
+            const currentTop = parseFloat(wrapper.style.top) || 0;
+            const copiedData = {
+                width: textBox.style.width,
+                height: textBox.style.height,
+                fontSize: textBox.style.fontSize,
+                color: textBox.style.color,
+                hasBg: textBox.dataset.hasBg,
+                content: textBox.innerHTML
+            };
+            createTextbox(currentLeft + 30, currentTop + 30, copiedData);
+            showToast('📋 已複製文字框！');
+        };
+
+        copyBtn.addEventListener('mousedown', executeCopy);
+        copyBtn.addEventListener('touchstart', executeCopy, { passive: false });
+        
+        // --- 新增刪除按鈕 ---
+        const delBtn = document.createElement('span');
+        delBtn.className = 'text-del-btn';
+        delBtn.innerHTML = '🗑️ 刪除';
+        delBtn.title = '刪除文字框';
+
+        const executeDel = (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            wrapper.remove(); // 直接將整個文字框從畫面上移除
+            if (activeTextBox === textBox) {
+                activeTextBox = null;
+            }
+            showToast('🗑️ 已刪除文字框！');
+        };
+
+        delBtn.addEventListener('mousedown', executeDel);
+        delBtn.addEventListener('touchstart', executeDel, { passive: false });
+        
+        btnGroup.appendChild(copyBtn);
+        btnGroup.appendChild(delBtn);
+        handle.appendChild(btnGroup);
+        // ------------------------------------
 
         const textBox = document.createElement('div');
         textBox.className = 'text-box';
@@ -978,12 +1458,35 @@
         const delBtn = document.createElement('button');
         delBtn.innerHTML = '🗑️';
         delBtn.className = 'img-del-btn';
-        delBtn.onclick = (e) => {
+        
+        // --- 圖片刪除按鈕也統一修改觸發機制防異常 ---
+        const executeImgDel = (e) => {
             e.stopPropagation();
+            e.preventDefault();
             wrapper.remove();
         };
+        delBtn.addEventListener('mousedown', executeImgDel);
+        delBtn.addEventListener('touchstart', executeImgDel, { passive: false });
+
+        const copyBtn = document.createElement('button');
+        copyBtn.innerHTML = '📋';
+        copyBtn.className = 'img-copy-btn';
+        copyBtn.title = '複製圖片';
+        
+        // --- 圖片複製按鈕也統一修改觸發機制防異常 ---
+        const executeImgCopy = (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            const currentLeft = parseFloat(wrapper.style.left) || 0;
+            const currentTop = parseFloat(wrapper.style.top) || 0;
+            createDraggableImage(src, 0, 0, (currentLeft + 30) + 'px', (currentTop + 30) + 'px', wrapper.style.width, wrapper.style.height);
+            showToast('📋 已複製圖片！');
+        };
+        copyBtn.addEventListener('mousedown', executeImgCopy);
+        copyBtn.addEventListener('touchstart', executeImgCopy, { passive: false });
 
         wrapper.appendChild(img);
+        wrapper.appendChild(copyBtn);
         wrapper.appendChild(delBtn);
         imageLayer.appendChild(wrapper);
 
@@ -1129,15 +1632,24 @@
         e.target.value = '';
     }
 
-    function clearCanvas() {
-        if (confirm('確定要清除整個白板嗎？')) {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            clearShapePreview();
-            textLayer.innerHTML = '';
-            imageLayer.innerHTML = '';
-            activeTextBox = null;
-            updateTextLayerInteractivity();
-        }
+    // --- 自定義清除邏輯，替代 confirm() ---
+    function requestClearCanvas() {
+        document.getElementById('custom-confirm-modal').style.display = 'flex';
+    }
+
+    function closeConfirmModal() {
+        document.getElementById('custom-confirm-modal').style.display = 'none';
+    }
+
+    function executeClearCanvas() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        clearShapePreview();
+        textLayer.innerHTML = '';
+        imageLayer.innerHTML = '';
+        activeTextBox = null;
+        updateTextLayerInteractivity();
+        closeConfirmModal();
+        showToast('✨ 白板已清空！');
     }
 
     updateCanvasInteractivity();
