@@ -515,6 +515,20 @@
         .confirm-btns .btn-confirm:hover {
             background-color: #c0392b;
         }
+
+        /* --- 新增：版權浮水印 --- */
+        #copyright-watermark {
+            position: absolute;
+            bottom: 10px;
+            right: 15px;
+            font-size: 13px;
+            color: rgba(44, 62, 80, 0.5);
+            pointer-events: none; /* 讓滑鼠點擊穿透，不影響畫圖 */
+            z-index: 990;
+            font-weight: bold;
+            user-select: none;
+            letter-spacing: 1px;
+        }
     </style>
 </head>
 <body class="mode-pen">
@@ -528,6 +542,9 @@
     </div>
 
     <div id="toast">提示訊息</div>
+
+    <!-- --- 新增：版權宣告 --- -->
+    <div id="copyright-watermark">© Eddie 版權所有</div>
 
     <!-- 客製化確認視窗 HTML -->
     <div id="custom-confirm-modal">
