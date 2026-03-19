@@ -570,13 +570,14 @@
             <button id="btn-fullscreen" onclick="toggleFullScreen()" style="color: #ecf0f1; border: 1px dashed #bdc3c7;">🔲 全螢幕</button>
             <button id="btn-move" onclick="setMode('move')">👆 移動</button>
             <button id="btn-pen" class="active" onclick="setMode('pen')">✏️ 畫筆</button>
-            <button id="btn-undo" onclick="undoAction()" title="返回上一個動作 (Ctrl+Z)">↶ 返回</button>
-            <button id="btn-redo" onclick="redoAction()" title="回復下一個動作 (Ctrl+Y / Ctrl+Shift+Z)">↷ 回復</button>
             <button id="btn-shape" onclick="setMode('shape')">📐 形狀</button>
             <button id="btn-text" onclick="setMode('text')">🔤 文字</button>
             <button id="btn-bg-toggle" onclick="toggleTextBg()">🔲 底色: 無</button>
             <button id="btn-eraser" onclick="setMode('eraser')">🧽 擦布</button>
             <button onclick="requestClearCanvas()">🗑️ 清除</button>
+            <button id="btn-undo" onclick="undoAction()" title="返回上一個動作 (Ctrl+Z)">↶ 返回</button>
+            <button id="btn-redo" onclick="redoAction()" title="回復下一個動作 (Ctrl+Y / Ctrl+Shift+Z)">↷ 回復</button>
+            <button id="btn-reset-defaults" onclick="resetWhiteboardDefaults()" title="回到白板與工具列預設狀態">🔄 預設</button>
         </div>
 
         <!-- 第二行：子功能、顏色、粗細、存檔 -->
@@ -639,9 +640,15 @@
     previewCtx.lineJoin = 'round';
     previewCtx.imageSmoothingEnabled = true;
 
-    let scale = 1;
-    let translateX = (window.innerWidth - 3000) / 2;
-    let translateY = (window.innerHeight - 2000) / 2;
+    function getDefaultViewState() {
+        return {
+            scale: 1,
+            translateX: (window.innerWidth - 3000) / 2,
+            translateY: (window.innerHeight - 2000) / 2
+        };
+    }
+
+    let { scale, translateX, translateY } = getDefaultViewState();
 
     let isDrawing = false;
     let currentMode = 'pen';
@@ -809,7 +816,15 @@
             toolbarEl.style.top = currentTop + 'px';
         }
     }
-    window.addEventListener('resize', checkToolbarBounds);
+    window.addEventListener('resize', () => {
+        if (Math.abs(scale - 1) < 0.0001) {
+            const defaultView = getDefaultViewState();
+            translateX = defaultView.translateX;
+            translateY = defaultView.translateY;
+            updateTransform();
+        }
+        checkToolbarBounds();
+    });
 
     function updateTransform() {
         workspace.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
@@ -979,6 +994,62 @@
         slider.value = isEraser ? eraserWidth : penWidth;
         document.getElementById('size-display').innerText = slider.value + 'px';
         showToast(`已回復預設${isEraser ? '擦布' : '畫筆'}大小`);
+    }
+
+
+    function resetWhiteboardDefaults() {
+        const defaultView = getDefaultViewState();
+        scale = defaultView.scale;
+        translateX = defaultView.translateX;
+        translateY = defaultView.translateY;
+        updateTransform();
+
+        currentColor = '#000000';
+        currentShapeType = 'rect';
+        currentPenType = 'freehand';
+        penWidth = DEFAULT_PEN_WIDTH;
+        eraserWidth = DEFAULT_ERASER_WIDTH;
+        savedFontSize = '32px';
+        globalTextBgEnabled = false;
+        updateBgButtonUI(false);
+
+        localStorage.setItem('wb_penWidth', penWidth);
+        localStorage.setItem('wb_eraserWidth', eraserWidth);
+
+        document.getElementById('pen-freehand').classList.add('active');
+        document.getElementById('pen-line').classList.remove('active');
+        document.getElementById('pen-highlight').classList.remove('active');
+        document.getElementById('shape-rect').classList.add('active');
+        document.getElementById('shape-circle').classList.remove('active');
+
+        const slider = document.getElementById('size-slider');
+        slider.max = 50;
+        slider.disabled = false;
+        slider.value = penWidth;
+        document.getElementById('size-icon').innerText = '✏️';
+        document.getElementById('size-display').innerText = penWidth + 'px';
+
+        if (activeTextBox) {
+            activeTextBox.blur();
+            activeTextBox = null;
+        }
+
+        setMode('pen');
+        clearShapePreview();
+        updateCanvasInteractivity();
+        updateToolOptionVisibility();
+        updateTextLayerInteractivity();
+
+        isToolbarMinimized = false;
+        toolbarEl.style.display = 'flex';
+        toolbarEl.style.left = '';
+        toolbarEl.style.top = '';
+        toolbarEl.style.bottom = '20px';
+        toolbarEl.style.transform = 'translateX(-50%)';
+        document.getElementById('btn-toggle-toolbar').classList.remove('show');
+        checkToolbarBounds();
+
+        showToast('已回到白板與工具列的預設狀態');
     }
 
     function setMode(mode) {
