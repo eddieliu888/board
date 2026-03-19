@@ -570,6 +570,8 @@
             <button id="btn-fullscreen" onclick="toggleFullScreen()" style="color: #ecf0f1; border: 1px dashed #bdc3c7;">🔲 全螢幕</button>
             <button id="btn-move" onclick="setMode('move')">👆 移動</button>
             <button id="btn-pen" class="active" onclick="setMode('pen')">✏️ 畫筆</button>
+            <button id="btn-undo" onclick="undoAction()" title="返回上一個動作 (Ctrl+Z)">↶ 返回</button>
+            <button id="btn-redo" onclick="redoAction()" title="回復下一個動作 (Ctrl+Y / Ctrl+Shift+Z)">↷ 回復</button>
             <button id="btn-shape" onclick="setMode('shape')">📐 形狀</button>
             <button id="btn-text" onclick="setMode('text')">🔤 文字</button>
             <button id="btn-bg-toggle" onclick="toggleTextBg()">🔲 底色: 無</button>
@@ -582,6 +584,7 @@
             <div id="pen-options" class="toolbar-group">
                 <button id="pen-freehand" class="active" onmousedown="setPenType(event, 'freehand')">〰️ 隨意</button>
                 <button id="pen-line" onmousedown="setPenType(event, 'line')">📏 直線</button>
+                <button id="pen-highlight" onmousedown="setPenType(event, 'highlight')">🖍️ Highlight</button>
             </div>
 
             <div id="shape-controls" class="toolbar-group">
@@ -645,6 +648,8 @@
     let currentColor = '#000000';
     let currentShapeType = 'rect';
     let currentPenType = 'freehand';
+    const HIGHLIGHT_COLOR = 'rgba(255, 235, 59, 0.45)';
+    const HIGHLIGHT_WIDTH = 28;
 
     const DEFAULT_PEN_WIDTH = 4;
     const DEFAULT_ERASER_WIDTH = 40;
@@ -655,6 +660,11 @@
     let eraserWidth = isNaN(savedEraserWidth) ? DEFAULT_ERASER_WIDTH : savedEraserWidth;
     
     let activeTextBox = null;
+    let historyStack = [];
+    let redoStack = [];
+    const MAX_HISTORY = 60;
+    let isRestoringHistory = false;
+    let textHistoryTimers = new WeakMap();
 
     const DEFAULT_BOX_WIDTH = '250px';
     const DEFAULT_BOX_HEIGHT = '60px';
@@ -812,6 +822,100 @@
         setTimeout(() => toast.style.opacity = 0, 2500);
     }
 
+    function serializeWhiteboard() {
+        const data = serializeWhiteboard();
+
+        return data;
+    }
+
+    function applyWhiteboardState(data) {
+        isRestoringHistory = true;
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        clearShapePreview();
+        textLayer.innerHTML = '';
+        imageLayer.innerHTML = '';
+        activeTextBox = null;
+
+        const finishRestore = () => {
+            updateTextLayerInteractivity();
+            updateUndoRedoButtons();
+            isRestoringHistory = false;
+        };
+
+        if (data.images) {
+            data.images.forEach(imgData => {
+                createDraggableImage(imgData.src, 0, 0, imgData.left, imgData.top, imgData.width, imgData.height);
+            });
+        }
+
+        if (data.texts) {
+            data.texts.forEach(t => {
+                createTextbox(parseFloat(t.left), parseFloat(t.top), t);
+            });
+        }
+
+        if (data.canvas) {
+            const img = new Image();
+            img.onload = () => {
+                ctx.drawImage(img, 0, 0);
+                finishRestore();
+            };
+            img.src = data.canvas;
+        } else {
+            finishRestore();
+        }
+    }
+
+    function saveHistory(force = false) {
+        if (isRestoringHistory) return;
+        const snapshot = JSON.stringify(serializeWhiteboard());
+        if (!force && historyStack.length && historyStack[historyStack.length - 1] === snapshot) {
+            updateUndoRedoButtons();
+            return;
+        }
+        historyStack.push(snapshot);
+        if (historyStack.length > MAX_HISTORY) historyStack.shift();
+        redoStack = [];
+        updateUndoRedoButtons();
+    }
+
+    function updateUndoRedoButtons() {
+        const undoBtn = document.getElementById('btn-undo');
+        const redoBtn = document.getElementById('btn-redo');
+        if (undoBtn) undoBtn.disabled = historyStack.length <= 1;
+        if (redoBtn) redoBtn.disabled = redoStack.length === 0;
+    }
+
+    function undoAction() {
+        if (historyStack.length <= 1) return;
+        const currentState = historyStack.pop();
+        redoStack.push(currentState);
+        const previousState = historyStack[historyStack.length - 1];
+        applyWhiteboardState(JSON.parse(previousState));
+        showToast('↶ 已返回上一個動作');
+    }
+
+    function redoAction() {
+        if (!redoStack.length) return;
+        const nextState = redoStack.pop();
+        historyStack.push(nextState);
+        applyWhiteboardState(JSON.parse(nextState));
+        showToast('↷ 已回復下一個動作');
+    }
+
+    function queueTextHistorySave(textBox) {
+        if (!textBox) return;
+        const oldTimer = textHistoryTimers.get(textBox);
+        if (oldTimer) clearTimeout(oldTimer);
+        const timer = setTimeout(() => {
+            saveHistory();
+            textHistoryTimers.delete(textBox);
+        }, 500);
+        textHistoryTimers.set(textBox, timer);
+    }
+
+
     function updateCanvasInteractivity() {
         if (currentMode === 'move') {
             canvas.style.pointerEvents = 'auto';
@@ -841,9 +945,11 @@
         if (isSizeTool) {
             const slider = document.getElementById('size-slider');
             const isEraser = currentMode === 'eraser';
-            slider.value = isEraser ? eraserWidth : penWidth;
+            const isHighlight = currentMode === 'pen' && currentPenType === 'highlight';
+            slider.value = isEraser ? eraserWidth : (isHighlight ? HIGHLIGHT_WIDTH : penWidth);
             slider.max = isEraser ? 200 : 50;
-            document.getElementById('size-icon').innerText = isEraser ? '🧽' : '✏️';
+            slider.disabled = isHighlight;
+            document.getElementById('size-icon').innerText = isEraser ? '🧽' : (isHighlight ? '🖍️' : '✏️');
             document.getElementById('size-display').innerText = slider.value + 'px';
         }
     }
@@ -896,6 +1002,8 @@
         currentPenType = type;
         document.getElementById('pen-freehand').classList.toggle('active', type === 'freehand');
         document.getElementById('pen-line').classList.toggle('active', type === 'line');
+        document.getElementById('pen-highlight').classList.toggle('active', type === 'highlight');
+        updateToolOptionVisibility();
     }
 
     function setShapeType(e, type) {
@@ -920,6 +1028,7 @@
                 activeTextBox.style.fontSize = newSize + 'px';
                 savedFontSize = newSize + 'px';
                 activeTextBox.dispatchEvent(new Event('input'));
+                saveHistory();
             }
         }
     }
@@ -941,6 +1050,7 @@
             activeTextBox.dataset.hasBg = (!currentState).toString();
             activeTextBox.style.backgroundColor = !currentState ? 'rgba(255, 255, 255, 0.9)' : 'transparent';
             updateBgButtonUI(!currentState);
+            saveHistory();
             showToast(!currentState ? '已為此文字框開啟底色' : '已為此文字框關閉底色');
         } else {
             globalTextBgEnabled = !globalTextBgEnabled;
@@ -963,6 +1073,15 @@
         ctx.quadraticCurveTo(from.x, from.y, midX, midY);
         ctx.stroke();
     }
+
+    function applyCurrentStrokeStyle(targetCtx) {
+        const isHighlighter = currentMode === 'pen' && currentPenType === 'highlight';
+        targetCtx.globalCompositeOperation = 'source-over';
+        targetCtx.strokeStyle = isHighlighter ? HIGHLIGHT_COLOR : currentColor;
+        targetCtx.lineWidth = isHighlighter ? HIGHLIGHT_WIDTH : (currentMode === 'eraser' ? eraserWidth : penWidth);
+        targetCtx.globalAlpha = 1;
+    }
+
 
     function drawShapePreview(start, end) {
         clearShapePreview();
@@ -1177,11 +1296,15 @@
 
         ctx.beginPath();
         ctx.moveTo(pos.x, pos.y);
-        ctx.globalCompositeOperation = currentMode === 'eraser' ? 'destination-out' : 'source-over';
-        ctx.strokeStyle = currentColor;
-        ctx.lineWidth = currentMode === 'eraser' ? eraserWidth : penWidth;
 
-        if (currentMode === 'pen' && currentPenType === 'freehand') {
+        if (currentMode === 'eraser') {
+            ctx.globalCompositeOperation = 'destination-out';
+            ctx.lineWidth = eraserWidth;
+        } else {
+            applyCurrentStrokeStyle(ctx);
+        }
+
+        if (currentMode === 'pen' && (currentPenType === 'freehand' || currentPenType === 'highlight')) {
             ctx.lineTo(pos.x + 0.01, pos.y + 0.01);
             ctx.stroke();
         } else if (currentMode === 'eraser') {
@@ -1217,7 +1340,7 @@
             return;
         }
 
-        if ((currentMode === 'pen' && currentPenType === 'freehand') || currentMode === 'eraser') {
+        if ((currentMode === 'pen' && (currentPenType === 'freehand' || currentPenType === 'highlight')) || currentMode === 'eraser') {
             drawSmoothSegment(lastPoint, pos);
             lastPoint = pos;
         }
@@ -1263,11 +1386,17 @@
             }
         }
 
+        const shouldSaveHistory = isDrawing && ['pen', 'shape', 'eraser'].includes(currentMode);
+
         isDrawing = false;
         shapeStart = null;
         lineStart = null;
         lastPoint = null;
         ctx.closePath();
+
+        if (shouldSaveHistory) {
+            saveHistory();
+        }
     }
 
     function createTextbox(x, y, restoreData = null) {
@@ -1305,6 +1434,7 @@
                 content: textBox.innerHTML
             };
             createTextbox(currentLeft + 30, currentTop + 30, copiedData);
+            saveHistory();
             showToast('📋 已複製文字框！');
         };
 
@@ -1324,6 +1454,7 @@
             if (activeTextBox === textBox) {
                 activeTextBox = null;
             }
+            saveHistory();
             showToast('🗑️ 已刪除文字框！');
         };
 
@@ -1371,6 +1502,7 @@
         textBox.addEventListener('input', function() {
             if (this.scrollWidth > this.clientWidth) this.style.width = (this.scrollWidth + 4) + 'px';
             if (this.scrollHeight > this.clientHeight) this.style.height = (this.scrollHeight + 4) + 'px';
+            queueTextHistorySave(this);
         });
 
         const dragStartText = (e) => {
@@ -1395,7 +1527,10 @@
         handle.addEventListener('mousedown', dragStartText);
         handle.addEventListener('touchstart', dragStartText, { passive: false });
 
-        if (!restoreData) setTimeout(() => textBox.focus(), 0);
+        if (!restoreData) {
+            setTimeout(() => textBox.focus(), 0);
+            saveHistory();
+        }
 
         textBox.addEventListener('focus', function() {
             activeTextBox = this;
@@ -1410,9 +1545,11 @@
                     if (this.innerText.trim() === '') {
                         wrapper.remove();
                         if (activeTextBox === this) activeTextBox = null;
+                        saveHistory();
                     } else {
                         wrapper.classList.remove('active');
                         this.style.backgroundColor = this.dataset.hasBg === 'true' ? 'rgba(255, 255, 255, 0.9)' : 'transparent';
+                        saveHistory();
                     }
                 }
             }, 50);
@@ -1481,6 +1618,7 @@
             e.stopPropagation();
             e.preventDefault();
             wrapper.remove();
+            saveHistory();
         };
         delBtn.addEventListener('mousedown', executeImgDel);
         delBtn.addEventListener('touchstart', executeImgDel, { passive: false });
@@ -1497,6 +1635,7 @@
             const currentLeft = parseFloat(wrapper.style.left) || 0;
             const currentTop = parseFloat(wrapper.style.top) || 0;
             createDraggableImage(src, 0, 0, (currentLeft + 30) + 'px', (currentTop + 30) + 'px', wrapper.style.width, wrapper.style.height);
+            saveHistory();
             showToast('📋 已複製圖片！');
         };
         copyBtn.addEventListener('mousedown', executeImgCopy);
@@ -1528,6 +1667,10 @@
 
         wrapper.addEventListener('mousedown', dragStartImg);
         wrapper.addEventListener('touchstart', dragStartImg, { passive: false });
+
+        if (restoreLeft === null && !isRestoringHistory) {
+            saveHistory();
+        }
     }
 
     const dragMove = (e) => {
@@ -1546,6 +1689,9 @@
     };
 
     const dragEnd = () => {
+        if (isDraggingItem && activeDragElement) {
+            saveHistory();
+        }
         isDraggingItem = false;
         activeDragElement = null;
     };
@@ -1558,36 +1704,7 @@
     function backupWhiteboard() {
         showToast('正在打包資料，請稍候...');
 
-        const data = {
-            canvas: canvas.toDataURL(),
-            texts: [],
-            images: []
-        };
-
-        document.querySelectorAll('.text-wrapper').forEach(wrapper => {
-            const box = wrapper.querySelector('.text-box');
-            data.texts.push({
-                left: wrapper.style.left,
-                top: wrapper.style.top,
-                width: box.style.width,
-                height: box.style.height,
-                fontSize: box.style.fontSize,
-                color: box.style.color,
-                hasBg: box.dataset.hasBg,
-                content: box.innerHTML
-            });
-        });
-
-        document.querySelectorAll('.pasted-image-wrapper').forEach(wrapper => {
-            const img = wrapper.querySelector('img');
-            data.images.push({
-                left: wrapper.style.left,
-                top: wrapper.style.top,
-                width: wrapper.style.width,
-                height: wrapper.style.height,
-                src: img.src
-            });
-        });
+        const data = serializeWhiteboard();
 
         const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
@@ -1612,33 +1729,10 @@
             try {
                 const data = JSON.parse(event.target.result);
 
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                clearShapePreview();
-                textLayer.innerHTML = '';
-                imageLayer.innerHTML = '';
-                activeTextBox = null;
-
-                if (data.canvas) {
-                    const img = new Image();
-                    img.onload = () => {
-                        ctx.drawImage(img, 0, 0);
-                    };
-                    img.src = data.canvas;
-                }
-
-                if (data.images) {
-                    data.images.forEach(imgData => {
-                        createDraggableImage(imgData.src, 0, 0, imgData.left, imgData.top, imgData.width, imgData.height);
-                    });
-                }
-
-                if (data.texts) {
-                    data.texts.forEach(t => {
-                        createTextbox(parseFloat(t.left), parseFloat(t.top), t);
-                    });
-                }
-
-                updateTextLayerInteractivity();
+                applyWhiteboardState(data);
+                historyStack = [JSON.stringify(data)];
+                redoStack = [];
+                updateUndoRedoButtons();
                 showToast('📂 備份檔還原成功！');
             } catch (err) {
                 alert('無法還原：備份檔格式不正確。');
@@ -1666,9 +1760,26 @@
         activeTextBox = null;
         updateTextLayerInteractivity();
         closeConfirmModal();
+        saveHistory(true);
         showToast('✨ 白板已清空！');
     }
 
+
+    document.addEventListener('keydown', (e) => {
+        const key = e.key.toLowerCase();
+        if (e.ctrlKey || e.metaKey) {
+            if (key === 'z' && !e.shiftKey) {
+                e.preventDefault();
+                undoAction();
+            } else if (key === 'y' || (key === 'z' && e.shiftKey)) {
+                e.preventDefault();
+                redoAction();
+            }
+        }
+    });
+
+    saveHistory(true);
+    updateUndoRedoButtons();
     updateCanvasInteractivity();
     updateToolOptionVisibility();
     updateTextLayerInteractivity();
