@@ -837,8 +837,44 @@
         setTimeout(() => toast.style.opacity = 0, 2500);
     }
 
+    // 💡 關鍵修正一：修復 serializeWhiteboard 的無限迴圈，並將白板資料轉換為正確的物件以供儲存
     function serializeWhiteboard() {
-        const data = serializeWhiteboard();
+        const data = {
+            canvas: canvas.toDataURL('image/png'),
+            images: [],
+            texts: []
+        };
+
+        // 收集所有插入的圖片
+        document.querySelectorAll('.pasted-image-wrapper').forEach(wrapper => {
+            const img = wrapper.querySelector('img');
+            if (img) {
+                data.images.push({
+                    src: img.src,
+                    left: wrapper.style.left,
+                    top: wrapper.style.top,
+                    width: wrapper.style.width,
+                    height: wrapper.style.height
+                });
+            }
+        });
+
+        // 收集所有文字框
+        document.querySelectorAll('.text-wrapper').forEach(wrapper => {
+            const textBox = wrapper.querySelector('.text-box');
+            if (textBox && textBox.innerText.trim() !== '') {
+                data.texts.push({
+                    left: wrapper.style.left,
+                    top: wrapper.style.top,
+                    width: textBox.style.width,
+                    height: textBox.style.height,
+                    fontSize: textBox.style.fontSize,
+                    color: textBox.style.color,
+                    hasBg: textBox.dataset.hasBg,
+                    content: textBox.innerHTML
+                });
+            }
+        });
 
         return data;
     }
@@ -1759,12 +1795,16 @@
         e.stopPropagation();
     };
 
+    // 💡 關鍵修正二：重新排列拖曳結束時的執行順序，確保任何情況下都會解除「黏住」的拖曳狀態
     const dragEnd = () => {
         if (isDraggingItem && activeDragElement) {
+            isDraggingItem = false;
+            activeDragElement = null;
             saveHistory();
+        } else {
+            isDraggingItem = false;
+            activeDragElement = null;
         }
-        isDraggingItem = false;
-        activeDragElement = null;
     };
 
     window.addEventListener('mousemove', dragMove);
