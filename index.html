@@ -41,6 +41,13 @@
             width: 100%;
             height: 100%;
             z-index: 5;
+            pointer-events: none; /* 空白圖片層不攔截畫布事件 */
+        }
+
+        /* 修正：移動模式時，圖片本體需在 canvas 上方才可操作刪除/複製/拖曳 */
+        body.mode-move #image-layer {
+            z-index: 19;
+            pointer-events: none;
         }
 
         #whiteboard {
@@ -156,9 +163,19 @@
 
         .text-wrapper.active .text-box {
             border-color: #3498db;
-            background-color: #ffffff !important;
             resize: both; /* 修正：只有在被選取/編輯時，才允許縮放並顯示縮放點 */
             overflow: auto;
+        }
+
+        /* 文字框背景規則：未啟用白底時保持透明；啟用白底後，編輯中也立即顯示白底 */
+        .text-box[data-has-bg="false"],
+        .text-wrapper.active .text-box[data-has-bg="false"] {
+            background-color: transparent !important;
+        }
+
+        .text-box[data-has-bg="true"],
+        .text-wrapper.active .text-box[data-has-bg="true"] {
+            background-color: #ffffff !important;
         }
 
         .text-box::-webkit-scrollbar {
@@ -184,6 +201,7 @@
             border-color: #3498db;
             cursor: grab;
             pointer-events: auto;
+            z-index: 1;
         }
 
         body.mode-move .pasted-image-wrapper:active {
@@ -210,6 +228,8 @@
             cursor: pointer;
             box-shadow: 0 2px 5px rgba(0,0,0,0.3);
             z-index: 6;
+            pointer-events: auto;
+            touch-action: manipulation;
         }
 
         .img-copy-btn {
@@ -227,6 +247,8 @@
             cursor: pointer;
             box-shadow: 0 2px 5px rgba(0,0,0,0.3);
             z-index: 6;
+            pointer-events: auto;
+            touch-action: manipulation;
         }
 
         #btn-toggle-toolbar {
@@ -398,6 +420,13 @@
             border-radius: 20px;
         }
 
+        .color-picker-container {
+            position: relative;
+            z-index: 2;
+            overflow: visible;
+            touch-action: manipulation;
+        }
+
         .file-controls button {
             color: #f1c40f;
             border: 1px solid #f1c40f;
@@ -415,6 +444,11 @@
             border: 2px solid #ecf0f1;
             cursor: pointer;
             padding: 0;
+            flex: 0 0 25px;
+            position: relative;
+            z-index: 2;
+            pointer-events: auto;
+            touch-action: manipulation;
         }
 
         .color-btn.white-btn {
@@ -606,11 +640,11 @@
             </div>
 
             <div class="color-picker-container">
-                <button class="color-btn white-btn" style="background-color: #ffffff;" onmousedown="changeColor(event, '#ffffff')"></button>
-                <button class="color-btn" style="background-color: #000000;" onmousedown="changeColor(event, '#000000')"></button>
-                <button class="color-btn" style="background-color: #e74c3c;" onmousedown="changeColor(event, '#e74c3c')"></button>
-                <button class="color-btn" style="background-color: #2980b9;" onmousedown="changeColor(event, '#2980b9')"></button>
-                <button class="color-btn" style="background-color: #27ae60;" onmousedown="changeColor(event, '#27ae60')"></button>
+                <button class="color-btn white-btn" style="background-color: #ffffff;" onpointerdown="changeColor(event, '#ffffff')"></button>
+                <button class="color-btn" style="background-color: #000000;" onpointerdown="changeColor(event, '#000000')"></button>
+                <button class="color-btn" style="background-color: #e74c3c;" onpointerdown="changeColor(event, '#e74c3c')"></button>
+                <button class="color-btn" style="background-color: #2980b9;" onpointerdown="changeColor(event, '#2980b9')"></button>
+                <button class="color-btn" style="background-color: #27ae60;" onpointerdown="changeColor(event, '#27ae60')"></button>
             </div>
 
             <div class="file-controls">
@@ -713,6 +747,15 @@
         } else {
             btn.innerText = '🔲 全螢幕';
         }
+
+        // 修正：全螢幕切換後重新計算工具列可點擊區域與邊界
+        requestAnimationFrame(() => {
+            checkToolbarBounds();
+            const colorButtons = document.querySelectorAll('.color-btn');
+            colorButtons.forEach(btn => {
+                btn.style.pointerEvents = 'auto';
+            });
+        });
     }
 
     // --- 工具列收合與拖曳邏輯 ---
@@ -1155,7 +1198,7 @@
         if (activeTextBox) {
             let currentState = activeTextBox.dataset.hasBg === 'true';
             activeTextBox.dataset.hasBg = (!currentState).toString();
-            activeTextBox.style.backgroundColor = !currentState ? 'rgba(255, 255, 255, 0.9)' : 'transparent';
+            activeTextBox.style.backgroundColor = !currentState ? '#ffffff' : 'transparent';
             updateBgButtonUI(!currentState);
             saveHistory();
             showToast(!currentState ? '已為此文字框開啟底色' : '已為此文字框關閉底色');
@@ -1509,8 +1552,14 @@
     function createTextbox(x, y, restoreData = null) {
         const wrapper = document.createElement('div');
         wrapper.className = 'text-wrapper';
-        wrapper.style.left = x + 'px';
-        wrapper.style.top = y + 'px';
+
+        // 修正：新文字框以「實際文字內容起點」對準滑鼠/觸控點。
+        // text-box 左右 padding 10px + border 2px；上下 padding 6px + border 2px。
+        // 還原/複製既有文字框時保持原座標，不重複位移。
+        const textInsetX = 12;
+        const textInsetY = 8;
+        wrapper.style.left = (restoreData ? x : x - textInsetX) + 'px';
+        wrapper.style.top = (restoreData ? y : y - textInsetY) + 'px';
 
         const handle = document.createElement('div');
         handle.className = 'text-drag-handle';
@@ -1584,7 +1633,7 @@
             textBox.style.color = restoreData.color;
             textBox.dataset.hasBg = restoreData.hasBg;
             textBox.innerHTML = restoreData.content;
-            textBox.style.backgroundColor = restoreData.hasBg === 'true' ? 'rgba(255, 255, 255, 0.9)' : 'transparent';
+            textBox.style.backgroundColor = restoreData.hasBg === 'true' ? '#ffffff' : 'transparent';
         } else {
             wrapper.classList.add('active');
             textBox.style.width = DEFAULT_BOX_WIDTH;
@@ -1592,7 +1641,7 @@
             textBox.style.fontSize = savedFontSize;
             textBox.style.color = currentColor;
             textBox.dataset.hasBg = globalTextBgEnabled.toString();
-            textBox.style.backgroundColor = globalTextBgEnabled ? 'rgba(255, 255, 255, 0.9)' : 'transparent';
+            textBox.style.backgroundColor = globalTextBgEnabled ? '#ffffff' : 'transparent';
         }
 
         wrapper.appendChild(handle);
@@ -1642,8 +1691,10 @@
         textBox.addEventListener('focus', function() {
             activeTextBox = this;
             wrapper.classList.add('active');
-            updateBgButtonUI(this.dataset.hasBg === 'true');
-            this.style.backgroundColor = this.dataset.hasBg === 'true' ? 'rgba(255, 255, 255, 0.9)' : 'transparent';
+            const hasWhiteBg = this.dataset.hasBg === 'true';
+            updateBgButtonUI(hasWhiteBg);
+            // 白底設定優先：若已啟用白底，編輯期間也維持白底；否則保持透明。
+            this.style.backgroundColor = hasWhiteBg ? '#ffffff' : 'transparent';
         });
 
         textBox.addEventListener('blur', function() {
@@ -1655,7 +1706,7 @@
                         saveHistory();
                     } else {
                         wrapper.classList.remove('active');
-                        this.style.backgroundColor = this.dataset.hasBg === 'true' ? 'rgba(255, 255, 255, 0.9)' : 'transparent';
+                        this.style.backgroundColor = this.dataset.hasBg === 'true' ? '#ffffff' : 'transparent';
                         saveHistory();
                     }
                 }
@@ -1729,6 +1780,7 @@
         };
         delBtn.addEventListener('mousedown', executeImgDel);
         delBtn.addEventListener('touchstart', executeImgDel, { passive: false });
+        delBtn.addEventListener('click', executeImgDel);
 
         const copyBtn = document.createElement('button');
         copyBtn.innerHTML = '📋';
@@ -1747,6 +1799,7 @@
         };
         copyBtn.addEventListener('mousedown', executeImgCopy);
         copyBtn.addEventListener('touchstart', executeImgCopy, { passive: false });
+        copyBtn.addEventListener('click', executeImgCopy);
 
         wrapper.appendChild(img);
         wrapper.appendChild(copyBtn);
@@ -1755,6 +1808,7 @@
 
         const dragStartImg = (e) => {
             if (currentMode !== 'move') return;
+            if (e.target.closest && (e.target.closest('.img-del-btn') || e.target.closest('.img-copy-btn'))) return;
 
             isDraggingItem = true;
             activeDragElement = wrapper;
